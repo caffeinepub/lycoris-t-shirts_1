@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Fraunces Display Font ── */
+@font-face {
+  font-family: "Fraunces";
+  src: url("/assets/fonts/Fraunces.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Cabinet Grotesk Body Font ── */
+@font-face {
+  font-family: "Cabinet Grotesk";
+  src: url("/assets/fonts/CabinetGrotesk.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.25rem;
+
+    /* === Lycoris Dark Theme — Deep Charcoal + Crimson === */
+    --background: 0.11 0.005 280;
+    --foreground: 0.95 0.01 280;
+
+    --card: 0.14 0.008 280;
+    --card-foreground: 0.95 0.01 280;
+
+    --popover: 0.16 0.008 280;
+    --popover-foreground: 0.95 0.01 280;
+
+    /* Crimson red accent — the lycoris signature */
+    --primary: 0.55 0.22 18;
+    --primary-foreground: 0.98 0 0;
+
+    --secondary: 0.18 0.01 280;
+    --secondary-foreground: 0.9 0.01 280;
+
+    --muted: 0.17 0.008 280;
+    --muted-foreground: 0.6 0.015 280;
+
+    --accent: 0.55 0.22 18;
+    --accent-foreground: 0.98 0 0;
+
+    --destructive: 0.6 0.22 18;
+    --destructive-foreground: 0.98 0 0;
+
+    --border: 0.22 0.01 280;
+    --input: 0.22 0.01 280;
+    --ring: 0.55 0.22 18;
+
+    --chart-1: 0.55 0.22 18;
+    --chart-2: 0.65 0.15 280;
+    --chart-3: 0.7 0.12 150;
+    --chart-4: 0.75 0.18 50;
+    --chart-5: 0.5 0.2 320;
+
+    --sidebar: 0.13 0.008 280;
+    --sidebar-foreground: 0.95 0.01 280;
+    --sidebar-primary: 0.55 0.22 18;
+    --sidebar-primary-foreground: 0.98 0 0;
+    --sidebar-accent: 0.18 0.01 280;
+    --sidebar-accent-foreground: 0.9 0.01 280;
+    --sidebar-border: 0.22 0.01 280;
+    --sidebar-ring: 0.55 0.22 18;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: "Fraunces", Georgia, serif;
+  }
+  .font-body {
+    font-family: "Cabinet Grotesk", system-ui, sans-serif;
+  }
+}
