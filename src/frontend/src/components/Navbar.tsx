@@ -1,11 +1,12 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/context/CartContext";
-import { Menu, ShoppingBag, X } from "lucide-react";
+import { useHeroConfig } from "@/context/HeroConfigContext";
+import { Menu, Package, ShoppingBag, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 
-type View = "home" | "shop" | "product" | "admin";
+type View = "home" | "shop" | "product" | "admin" | "orders";
 
 interface NavbarProps {
   currentView: View;
@@ -15,7 +16,12 @@ interface NavbarProps {
 
 export function Navbar({ currentView, onNavigate, onCartOpen }: NavbarProps) {
   const { cartCount } = useCart();
+  const { heroConfig } = useHeroConfig();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const logoSrc = heroConfig.logoImage
+    ? heroConfig.logoImage
+    : "/assets/uploads/WhatsApp-Image-2026-02-28-at-7.14.59-PM-1.JPG";
 
   return (
     <header className="sticky top-0 z-40 bg-background/95 backdrop-blur-sm border-b border-border">
@@ -24,10 +30,11 @@ export function Navbar({ currentView, onNavigate, onCartOpen }: NavbarProps) {
         <button
           type="button"
           onClick={() => onNavigate("home")}
+          data-ocid="nav.home_link"
           className="flex-shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
         >
           <img
-            src="/assets/uploads/WhatsApp-Image-2026-02-28-at-7.14.59-PM-1.JPG"
+            src={logoSrc}
             alt="Lycoris T-Shirts"
             className="h-10 w-auto object-contain"
           />
@@ -58,6 +65,19 @@ export function Navbar({ currentView, onNavigate, onCartOpen }: NavbarProps) {
             }`}
           >
             Shop
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate("orders")}
+            data-ocid="nav.orders_link"
+            className={`font-body text-sm tracking-wider uppercase transition-colors flex items-center gap-1.5 ${
+              currentView === "orders"
+                ? "text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Package className="h-3.5 w-3.5" />
+            My Orders
           </button>
         </div>
 
@@ -146,6 +166,22 @@ export function Navbar({ currentView, onNavigate, onCartOpen }: NavbarProps) {
                 }`}
               >
                 Shop
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onNavigate("orders");
+                  setMobileMenuOpen(false);
+                }}
+                data-ocid="nav.orders_link"
+                className={`font-body text-sm tracking-wider uppercase text-left py-2 transition-colors flex items-center gap-1.5 ${
+                  currentView === "orders"
+                    ? "text-primary"
+                    : "text-muted-foreground"
+                }`}
+              >
+                <Package className="h-3.5 w-3.5" />
+                My Orders
               </button>
             </div>
           </motion.div>

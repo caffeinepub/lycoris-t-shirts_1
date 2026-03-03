@@ -2,14 +2,18 @@ import { CartSheet } from "@/components/CartSheet";
 import { Navbar } from "@/components/Navbar";
 import { Toaster } from "@/components/ui/sonner";
 import { CartProvider } from "@/context/CartContext";
+import { HeroConfigProvider } from "@/context/HeroConfigContext";
+import { OrdersProvider } from "@/context/OrdersContext";
 import type { Product } from "@/data/products";
 import { AdminPage } from "@/pages/AdminPage";
+import { CheckoutPage } from "@/pages/CheckoutPage";
 import { HomePage } from "@/pages/HomePage";
+import { MyOrdersPage } from "@/pages/MyOrdersPage";
 import { ProductDetailPage } from "@/pages/ProductDetailPage";
 import { ShopPage } from "@/pages/ShopPage";
 import { useState } from "react";
 
-type View = "home" | "shop" | "product" | "admin";
+type View = "home" | "shop" | "product" | "admin" | "checkout" | "orders";
 
 function AppContent() {
   const [view, setView] = useState<View>("home");
@@ -34,11 +38,13 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <Navbar
-        currentView={view}
-        onNavigate={handleNavigate}
-        onCartOpen={() => setCartOpen(true)}
-      />
+      {view !== "checkout" && (
+        <Navbar
+          currentView={view}
+          onNavigate={handleNavigate}
+          onCartOpen={() => setCartOpen(true)}
+        />
+      )}
 
       {view === "home" && (
         <HomePage
@@ -59,7 +65,26 @@ function AppContent() {
 
       {view === "admin" && <AdminPage />}
 
-      <CartSheet open={cartOpen} onOpenChange={setCartOpen} />
+      {view === "checkout" && (
+        <CheckoutPage
+          onBack={() => handleNavigate("shop")}
+          onOrderSuccess={() => handleNavigate("home")}
+          onViewMyOrders={() => handleNavigate("orders")}
+        />
+      )}
+
+      {view === "orders" && (
+        <MyOrdersPage onBack={() => handleNavigate("shop")} />
+      )}
+
+      <CartSheet
+        open={cartOpen}
+        onOpenChange={setCartOpen}
+        onCheckout={() => {
+          setCartOpen(false);
+          handleNavigate("checkout");
+        }}
+      />
 
       {/* Admin link — subtle, in the lower-right corner */}
       <button
@@ -89,8 +114,12 @@ function AppContent() {
 
 export default function App() {
   return (
-    <CartProvider>
-      <AppContent />
-    </CartProvider>
+    <HeroConfigProvider>
+      <OrdersProvider>
+        <CartProvider>
+          <AppContent />
+        </CartProvider>
+      </OrdersProvider>
+    </HeroConfigProvider>
   );
 }

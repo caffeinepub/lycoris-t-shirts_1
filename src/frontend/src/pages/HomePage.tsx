@@ -1,7 +1,9 @@
 import { ProductCard } from "@/components/ProductCard";
 import { Button } from "@/components/ui/button";
+import { useHeroConfig } from "@/context/HeroConfigContext";
 import { PRODUCTS } from "@/data/products";
 import type { Product } from "@/data/products";
+import { useBackendProducts } from "@/hooks/useBackendProducts";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -11,7 +13,20 @@ interface HomePageProps {
 }
 
 export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
-  const featured = PRODUCTS.slice(0, 4);
+  const { products: backendProducts, loading } = useBackendProducts();
+  const allProducts =
+    backendProducts.length > 0 ? backendProducts : !loading ? PRODUCTS : [];
+  const featured = allProducts.slice(0, 4);
+  const { heroConfig } = useHeroConfig();
+
+  const heroBg = heroConfig.heroBgImage
+    ? heroConfig.heroBgImage
+    : "/assets/generated/hero-banner.dim_1200x500.jpg";
+
+  // Split title on literal \n or actual newline
+  const titleParts = heroConfig.heroTitle.split(/\\n|\n/);
+  const titleLine1 = titleParts[0] || "Wear the";
+  const titleLine2 = titleParts[1] || "Bloom";
 
   return (
     <main>
@@ -19,7 +34,7 @@ export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
       <section
         className="relative min-h-[500px] flex items-center justify-center overflow-hidden"
         style={{
-          backgroundImage: `url('/assets/generated/hero-banner.dim_1200x500.jpg')`,
+          backgroundImage: `url('${heroBg}')`,
           backgroundSize: "cover",
           backgroundPosition: "center top",
         }}
@@ -43,7 +58,7 @@ export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
             >
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span className="text-primary font-body text-xs tracking-[0.2em] uppercase font-semibold">
-                New Collection 2026
+                {heroConfig.heroBadgeText}
               </span>
             </motion.div>
 
@@ -53,9 +68,9 @@ export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
               transition={{ duration: 0.6, delay: 0.2 }}
               className="font-display text-5xl sm:text-6xl md:text-7xl font-bold text-foreground leading-[0.95] tracking-tight mb-6"
             >
-              Wear the
+              {titleLine1}
               <br />
-              <span className="text-primary italic">Bloom</span>
+              <span className="text-primary italic">{titleLine2}</span>
             </motion.h1>
 
             <motion.p
@@ -64,8 +79,7 @@ export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
               transition={{ duration: 0.6, delay: 0.35 }}
               className="font-body text-muted-foreground text-lg mb-8 leading-relaxed max-w-sm"
             >
-              Premium tees inspired by the ephemeral beauty of the lycoris
-              flower.
+              {heroConfig.heroSubtitle}
             </motion.p>
 
             <motion.div
@@ -78,7 +92,7 @@ export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
                 data-ocid="home.shop_now_button"
                 className="bg-primary text-primary-foreground hover:bg-primary/90 h-12 px-8 font-body font-semibold tracking-wider uppercase text-sm gap-2 group rounded-none"
               >
-                Shop Now
+                {heroConfig.heroCtaLabel}
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Button>
             </motion.div>

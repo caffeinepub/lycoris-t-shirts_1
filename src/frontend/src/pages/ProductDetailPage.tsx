@@ -17,6 +17,10 @@ export function ProductDetailPage({
   onBack,
   onCartOpen,
 }: ProductDetailPageProps) {
+  const allImages = product.images?.length
+    ? product.images
+    : [product.imageUrl];
+  const [activeImage, setActiveImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [sizeError, setSizeError] = useState(false);
   const [justAdded, setJustAdded] = useState(false);
@@ -28,7 +32,8 @@ export function ProductDetailPage({
       return;
     }
     setSizeError(false);
-    addToCart(product, selectedSize);
+    const effectivePrice = product.sizePrices?.[selectedSize] ?? product.price;
+    addToCart(product, selectedSize, effectivePrice);
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 2000);
     toast.success(`${product.name} added to cart`, {
@@ -57,18 +62,44 @@ export function ProductDetailPage({
         </motion.button>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16">
-          {/* Product Image */}
+          {/* Product Images */}
           <motion.div
             initial={{ opacity: 0, scale: 0.97 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
-            className="aspect-square rounded-sm overflow-hidden bg-muted"
+            className="flex flex-col gap-3"
           >
-            <img
-              src={product.imageUrl}
-              alt={product.name}
-              className="w-full h-full object-cover"
-            />
+            <div className="aspect-square rounded-sm overflow-hidden bg-muted">
+              <img
+                src={allImages[activeImage]}
+                alt={product.name}
+                className="w-full h-full object-cover transition-opacity duration-200"
+              />
+            </div>
+            {allImages.length > 1 && (
+              <div className="flex gap-2 flex-wrap">
+                {allImages.map((src, i) => (
+                  <button
+                    key={src.slice(-32)}
+                    type="button"
+                    onClick={() => setActiveImage(i)}
+                    data-ocid={`product.thumbnail.${i + 1}`}
+                    className={`w-16 h-16 rounded-sm overflow-hidden border-2 transition-colors flex-shrink-0 ${
+                      activeImage === i
+                        ? "border-primary"
+                        : "border-border hover:border-muted-foreground"
+                    }`}
+                    aria-label={`View photo ${i + 1}`}
+                  >
+                    <img
+                      src={src}
+                      alt={`${product.name} view ${i + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
           </motion.div>
 
           {/* Product Info */}
@@ -89,7 +120,11 @@ export function ProductDetailPage({
             </h1>
 
             <p className="font-display text-2xl font-semibold text-primary mb-6">
-              {formatPrice(product.price)}
+              {selectedSize && product.sizePrices?.[selectedSize]
+                ? formatPrice(product.sizePrices[selectedSize])
+                : product.sizePrices
+                  ? `from ${formatPrice(Math.min(...Object.values(product.sizePrices)))}`
+                  : formatPrice(product.price)}
             </p>
 
             <p className="font-body text-muted-foreground leading-relaxed mb-8">

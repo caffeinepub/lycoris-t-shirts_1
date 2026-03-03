@@ -1,9 +1,11 @@
 import { ProductCard } from "@/components/ProductCard";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CATEGORIES, PRODUCTS } from "@/data/products";
+import { PRODUCTS } from "@/data/products";
 import type { Product } from "@/data/products";
+import { useBackendProducts } from "@/hooks/useBackendProducts";
+import { Loader2 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 interface ShopPageProps {
   onProductSelect: (product: Product) => void;
@@ -11,11 +13,21 @@ interface ShopPageProps {
 
 export function ShopPage({ onProductSelect }: ShopPageProps) {
   const [activeCategory, setActiveCategory] = useState("All");
+  const { products: backendProducts, loading } = useBackendProducts();
+
+  // Use backend products if loaded, otherwise fall back to static seed data
+  const products =
+    backendProducts.length > 0 ? backendProducts : !loading ? PRODUCTS : [];
+
+  const categories = useMemo(() => {
+    const cats = Array.from(new Set(products.map((p) => p.category)));
+    return ["All", ...cats];
+  }, [products]);
 
   const filtered =
     activeCategory === "All"
-      ? PRODUCTS
-      : PRODUCTS.filter((p) => p.category === activeCategory);
+      ? products
+      : products.filter((p) => p.category === activeCategory);
 
   return (
     <main className="min-h-screen">
@@ -48,7 +60,7 @@ export function ShopPage({ onProductSelect }: ShopPageProps) {
         >
           <Tabs value={activeCategory} onValueChange={setActiveCategory}>
             <TabsList className="bg-card border border-border rounded-none h-auto p-0 gap-0 flex-wrap">
-              {CATEGORIES.map((cat) => (
+              {categories.map((cat) => (
                 <TabsTrigger
                   key={cat}
                   value={cat}
@@ -62,17 +74,33 @@ export function ShopPage({ onProductSelect }: ShopPageProps) {
           </Tabs>
         </motion.div>
 
+        {/* Loading state */}
+        {loading && (
+          <div
+            className="flex items-center justify-center py-24 gap-3 text-muted-foreground font-body text-sm"
+            data-ocid="shop.products.loading_state"
+          >
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            Loading catalog…
+          </div>
+        )}
+
         {/* Count */}
-        <p className="text-muted-foreground font-body text-xs mb-6 tracking-wide">
-          {filtered.length} {filtered.length === 1 ? "result" : "results"}
-        </p>
+        {!loading && (
+          <p className="text-muted-foreground font-body text-xs mb-6 tracking-wide">
+            {filtered.length} {filtered.length === 1 ? "result" : "results"}
+          </p>
+        )}
 
         {/* Grid */}
-        {filtered.length === 0 ? (
-          <div className="py-24 text-center text-muted-foreground font-body">
+        {!loading && filtered.length === 0 ? (
+          <div
+            className="py-24 text-center text-muted-foreground font-body"
+            data-ocid="shop.products.empty_state"
+          >
             No products in this category.
           </div>
-        ) : (
+        ) : !loading ? (
           <motion.div
             key={activeCategory}
             initial={{ opacity: 0 }}
@@ -89,7 +117,7 @@ export function ShopPage({ onProductSelect }: ShopPageProps) {
               />
             ))}
           </motion.div>
-        )}
+        ) : null}
       </section>
 
       {/* Footer */}

@@ -5,11 +5,12 @@ export interface CartItem {
   product: Product;
   size: string;
   quantity: number;
+  effectivePrice: number; // price at time of adding to cart (size-specific)
 }
 
 interface CartContextValue {
   cartItems: CartItem[];
-  addToCart: (product: Product, size: string) => void;
+  addToCart: (product: Product, size: string, effectivePrice?: number) => void;
   removeFromCart: (index: number) => void;
   updateQuantity: (index: number, qty: number) => void;
   clearCart: () => void;
@@ -22,7 +23,14 @@ const CartContext = createContext<CartContextValue | null>(null);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
-  const addToCart = (product: Product, size: string) => {
+  const addToCart = (
+    product: Product,
+    size: string,
+    effectivePrice?: number,
+  ) => {
+    const resolvedPrice =
+      effectivePrice ?? product.sizePrices?.[size] ?? product.price;
+
     setCartItems((prev) => {
       const existingIndex = prev.findIndex(
         (item) => item.product.id === product.id && item.size === size,
@@ -32,7 +40,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
           i === existingIndex ? { ...item, quantity: item.quantity + 1 } : item,
         );
       }
-      return [...prev, { product, size, quantity: 1 }];
+      return [
+        ...prev,
+        { product, size, quantity: 1, effectivePrice: resolvedPrice },
+      ];
     });
   };
 
@@ -54,7 +65,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce(
-    (sum, item) => sum + item.product.price * item.quantity,
+    (sum, item) => sum + item.effectivePrice * item.quantity,
     0,
   );
 

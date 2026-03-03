@@ -9,28 +9,17 @@ import {
 } from "@/components/ui/sheet";
 import { useCart } from "@/context/CartContext";
 import { formatPrice } from "@/data/products";
-import { CheckCircle, Minus, Plus, ShoppingBag, X } from "lucide-react";
+import { ArrowRight, Minus, Plus, ShoppingBag, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { toast } from "sonner";
 
 interface CartSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCheckout: () => void;
 }
 
-export function CartSheet({ open, onOpenChange }: CartSheetProps) {
-  const { cartItems, removeFromCart, updateQuantity, clearCart, cartTotal } =
-    useCart();
-
-  const handlePlaceOrder = () => {
-    clearCart();
-    onOpenChange(false);
-    toast.success("Order placed successfully!", {
-      description:
-        "Thank you for shopping with Lycoris. Your order is confirmed.",
-      icon: <CheckCircle className="h-4 w-4 text-green-400" />,
-    });
-  };
+export function CartSheet({ open, onOpenChange, onCheckout }: CartSheetProps) {
+  const { cartItems, removeFromCart, updateQuantity, cartTotal } = useCart();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -52,7 +41,10 @@ export function CartSheet({ open, onOpenChange }: CartSheetProps) {
         </SheetHeader>
 
         {cartItems.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-12">
+          <div
+            className="flex-1 flex flex-col items-center justify-center gap-4 px-6 py-12"
+            data-ocid="cart.empty_state"
+          >
             <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
               <ShoppingBag className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -84,7 +76,9 @@ export function CartSheet({ open, onOpenChange }: CartSheetProps) {
                     >
                       <div className="w-20 h-20 rounded overflow-hidden flex-shrink-0 bg-muted">
                         <img
-                          src={item.product.imageUrl}
+                          src={
+                            item.product.images?.[0] ?? item.product.imageUrl
+                          }
                           alt={item.product.name}
                           className="w-full h-full object-cover"
                         />
@@ -136,7 +130,7 @@ export function CartSheet({ open, onOpenChange }: CartSheetProps) {
                             </button>
                           </div>
                           <span className="text-sm font-semibold text-foreground">
-                            {formatPrice(item.product.price * item.quantity)}
+                            {formatPrice(item.effectivePrice * item.quantity)}
                           </span>
                         </div>
                       </div>
@@ -146,7 +140,9 @@ export function CartSheet({ open, onOpenChange }: CartSheetProps) {
               </div>
             </ScrollArea>
 
+            {/* Summary + Checkout */}
             <div className="px-6 py-5 border-t border-border space-y-4">
+              {/* Totals */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-muted-foreground">
                   <span>Subtotal</span>
@@ -154,20 +150,23 @@ export function CartSheet({ open, onOpenChange }: CartSheetProps) {
                 </div>
                 <div className="flex justify-between text-sm text-muted-foreground">
                   <span>Shipping</span>
-                  <span>Free</span>
+                  <span className="text-green-400 font-semibold">Free</span>
                 </div>
                 <Separator className="bg-border" />
                 <div className="flex justify-between font-display text-lg font-semibold text-foreground">
                   <span>Total</span>
-                  <span>{formatPrice(cartTotal)}</span>
+                  <span className="text-primary">{formatPrice(cartTotal)}</span>
                 </div>
               </div>
+
               <Button
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wide h-12"
-                onClick={handlePlaceOrder}
-                data-ocid="cart.place_order_button"
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase text-sm h-12 gap-2 rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={onCheckout}
+                disabled={cartItems.length === 0}
+                data-ocid="cart.checkout_button"
               >
-                Place Order
+                Proceed to Checkout
+                <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
           </>
