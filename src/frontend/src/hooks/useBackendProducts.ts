@@ -149,6 +149,7 @@ interface UpdateProductData extends AddProductData {
 interface UseBackendProductsReturn {
   products: Product[];
   loading: boolean;
+  isFetching: boolean;
   error: string | null;
   refreshProducts: () => Promise<void>;
   addProduct: (data: AddProductData) => Promise<bigint>;
@@ -214,6 +215,8 @@ export function useBackendProducts(): UseBackendProductsReturn {
         data.inStock,
       )) as bigint;
 
+      // Wait for IC replicas to propagate the update before querying
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await refreshProducts();
       return newId;
     },
@@ -249,6 +252,8 @@ export function useBackendProducts(): UseBackendProductsReturn {
         data.inStock,
       )) as boolean;
 
+      // Wait for IC replicas to propagate the update before querying
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await refreshProducts();
       return result;
     },
@@ -263,6 +268,9 @@ export function useBackendProducts(): UseBackendProductsReturn {
       const result = (await (actor as any).deleteProduct(
         BigInt(id),
       )) as boolean;
+
+      // Wait for IC replicas to propagate the update before querying
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await refreshProducts();
       return result;
     },
@@ -272,6 +280,7 @@ export function useBackendProducts(): UseBackendProductsReturn {
   return {
     products,
     loading,
+    isFetching,
     error,
     refreshProducts,
     addProduct,

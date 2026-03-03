@@ -32,6 +32,7 @@ import type { OrderStatus } from "@/context/OrdersContext";
 import { type Product, formatPrice } from "@/data/products";
 import { type AdminOrder, useBackendOrders } from "@/hooks/useBackendOrders";
 import { useBackendProducts } from "@/hooks/useBackendProducts";
+import { useStorageUpload } from "@/hooks/useStorageUpload";
 import {
   ImagePlus,
   Layout,
@@ -1035,10 +1036,38 @@ export function AdminPage() {
   const {
     products,
     loading: productsLoading,
+    isFetching,
     addProduct: backendAddProduct,
     updateProduct: backendUpdateProduct,
     deleteProduct: backendDeleteProduct,
   } = useBackendProducts();
+
+  const { uploadImage } = useStorageUpload();
+
+  // Upload any base64 data: URLs to blob storage and return resolved URL array.
+  // If an individual image upload fails, it is skipped rather than failing the whole operation.
+  const resolveImages = async (images: string[]): Promise<string[]> => {
+    const resolved: string[] = [];
+    for (const img of images) {
+      if (img.startsWith("data:")) {
+        try {
+          const res = await fetch(img);
+          const blob = await res.blob();
+          const file = new File([blob], "product-image.jpg", {
+            type: blob.type || "image/jpeg",
+          });
+          const url = await uploadImage(file);
+          resolved.push(url);
+        } catch (err) {
+          console.warn("Image upload failed, skipping:", err);
+          // Skip this image rather than failing the whole add/edit operation
+        }
+      } else {
+        resolved.push(img);
+      }
+    }
+    return resolved;
+  };
 
   // Add Product form state
   const [form, setForm] = useState({
@@ -1076,26 +1105,28 @@ export function AdminPage() {
       return;
     }
 
-    const mainImage =
-      form.images[0] || "/assets/generated/tshirt-black.dim_600x600.jpg";
-
-    const sizePrices: Record<string, number> = {};
-    for (const row of validRows) {
-      sizePrices[row.size.trim().toUpperCase()] = Math.round(
-        Number.parseInt(row.price, 10),
-      );
-    }
-    const sizes = validRows.map((r) => r.size.trim().toUpperCase());
-
     setIsSaving(true);
     try {
+      // Upload images to blob storage first (converts base64 → public URL)
+      const resolvedImages = await resolveImages(form.images);
+      const mainImage =
+        resolvedImages[0] || "/assets/generated/tshirt-black.dim_600x600.jpg";
+
+      const sizePrices: Record<string, number> = {};
+      for (const row of validRows) {
+        sizePrices[row.size.trim().toUpperCase()] = Math.round(
+          Number.parseInt(row.price, 10),
+        );
+      }
+      const sizes = validRows.map((r) => r.size.trim().toUpperCase());
+
       await backendAddProduct({
         name: form.name,
         description: form.description,
         category: form.category,
         sizes,
         sizePrices,
-        images: form.images.length > 0 ? form.images : [mainImage],
+        images: resolvedImages.length > 0 ? resolvedImages : [mainImage],
         imageUrl: mainImage,
         inStock: true,
       });
@@ -1168,18 +1199,20 @@ export function AdminPage() {
       return;
     }
 
-    const mainImage = editForm.images[0] || editingProduct.imageUrl;
-
-    const sizePrices: Record<string, number> = {};
-    for (const row of validRows) {
-      sizePrices[row.size.trim().toUpperCase()] = Math.round(
-        Number.parseInt(row.price, 10),
-      );
-    }
-    const sizes = validRows.map((r) => r.size.trim().toUpperCase());
-
     setIsSaving(true);
     try {
+      // Upload any newly-added base64 images to blob storage
+      const resolvedImages = await resolveImages(editForm.images);
+      const mainImage = resolvedImages[0] || editingProduct.imageUrl;
+
+      const sizePrices: Record<string, number> = {};
+      for (const row of validRows) {
+        sizePrices[row.size.trim().toUpperCase()] = Math.round(
+          Number.parseInt(row.price, 10),
+        );
+      }
+      const sizes = validRows.map((r) => r.size.trim().toUpperCase());
+
       await backendUpdateProduct(editingProduct.id, {
         name: editForm.name,
         description: editForm.description,
@@ -1187,8 +1220,8 @@ export function AdminPage() {
         sizes,
         sizePrices,
         images:
-          editForm.images.length > 0
-            ? editForm.images
+          resolvedImages.length > 0
+            ? resolvedImages
             : (editingProduct.images ?? []),
         imageUrl: mainImage,
         inStock: editForm.inStock,
@@ -1426,16 +1459,20 @@ export function AdminPage() {
 
                     <Button
                       type="submit"
-                      disabled={isSaving}
+                      disabled={isSaving || isFetching}
                       data-ocid="admin.add_product_button"
                       className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 gap-2 disabled:opacity-60"
                     >
-                      {isSaving ? (
+                      {isSaving || isFetching ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <Plus className="h-4 w-4" />
                       )}
-                      {isSaving ? "Saving..." : "Add Product"}
+                      {isFetching
+                        ? "Connecting..."
+                        : isSaving
+                          ? "Uploading..."
+                          : "Add Product"}
                     </Button>
                   </form>
                 </div>
