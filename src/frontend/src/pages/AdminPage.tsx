@@ -28,18 +28,23 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useHeroConfig } from "@/context/HeroConfigContext";
-import type { OrderStatus } from "@/context/OrdersContext";
-import { type Product, formatPrice } from "@/data/products";
-import { type AdminOrder, useBackendOrders } from "@/hooks/useBackendOrders";
-import { useBackendProducts } from "@/hooks/useBackendProducts";
-import { useStorageUpload } from "@/hooks/useStorageUpload";
 import {
+  type Order,
+  type OrderStatus,
+  useOrders,
+} from "@/context/OrdersContext";
+import { useProducts } from "@/context/ProductsContext";
+import { type Product, formatPrice } from "@/data/products";
+import {
+  ChevronDown,
+  ChevronRight,
   ImagePlus,
   Layout,
-  Loader2,
   Lock,
+  MapPin,
   Package,
   Pencil,
+  Phone,
   Plus,
   RefreshCw,
   ShoppingCart,
@@ -49,7 +54,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 const ADMIN_PASSWORD = "lycoris-admin";
@@ -77,6 +82,7 @@ interface EditForm {
   sizeRows: SizePriceRow[];
   images: string[];
   inStock: boolean;
+  stockLimit: string; // stored as string for input, "" = unlimited
 }
 
 const defaultEditForm = (): EditForm => ({
@@ -86,6 +92,7 @@ const defaultEditForm = (): EditForm => ({
   sizeRows: [newSizePriceRow()],
   images: [],
   inStock: true,
+  stockLimit: "",
 });
 
 // Read files as base64 data URLs
@@ -427,44 +434,21 @@ function OrderStatusBadge({ status }: { status: OrderStatus }) {
 
 // ---- Orders Tab ----
 function OrdersTab() {
-  const { getAllAdminOrders } = useBackendOrders();
-  const [orders, setOrders] = useState<AdminOrder[]>([]);
-  const [ordersLoading, setOrdersLoading] = useState(true);
-  const [cancellingOrder, setCancellingOrder] = useState<AdminOrder | null>(
-    null,
-  );
+  const { orders, cancelOrder, updateOrderStatus } = useOrders();
+  const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [orderStatuses, setOrderStatuses] = useState<
-    Record<string, OrderStatus>
-  >({});
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    let mounted = true;
-    setOrdersLoading(true);
-    getAllAdminOrders()
-      .then((result) => {
-        if (mounted) {
-          setOrders(result);
-          setOrdersLoading(false);
-        }
-      })
-      .catch(() => {
-        if (mounted) setOrdersLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, [getAllAdminOrders]);
-
-  const getOrderStatus = (orderId: string): OrderStatus =>
-    orderStatuses[orderId] ?? "Pending";
-
-  const updateOrderStatus = (id: string, newStatus: OrderStatus) => {
-    setOrderStatuses((prev) => ({ ...prev, [id]: newStatus }));
-  };
-
-  const cancelOrder = (id: string) => {
-    setOrderStatuses((prev) => ({ ...prev, [id]: "Cancelled" }));
+  const toggleRow = (orderId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
   };
 
   const sortedOrders = [...orders].sort((a, b) => b.timestamp - a.timestamp);
@@ -479,23 +463,11 @@ function OrdersTab() {
 
   const handleCancelConfirm = () => {
     if (!cancellingOrder) return;
-    cancelOrder(cancellingOrder.id);
+    cancelOrder(cancellingOrder.id, cancelReason);
     setCancellingOrder(null);
     setCancelReason("");
     toast.success(`Order ${cancellingOrder.id} has been cancelled.`);
   };
-
-  if (ordersLoading) {
-    return (
-      <div
-        className="flex items-center justify-center py-20 gap-3 text-muted-foreground font-body text-sm"
-        data-ocid="admin.orders.loading_state"
-      >
-        <Loader2 className="h-5 w-5 animate-spin text-primary" />
-        Loading orders…
-      </div>
-    );
-  }
 
   if (sortedOrders.length === 0) {
     return (
@@ -532,6 +504,7 @@ function OrdersTab() {
           <Table data-ocid="admin.orders.table">
             <TableHeader>
               <TableRow className="border-border hover:bg-transparent">
+                <TableHead className="w-8" />
                 <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
                   Order ID
                 </TableHead>
@@ -560,102 +533,315 @@ function OrdersTab() {
             </TableHeader>
             <TableBody>
               {sortedOrders.map((order, index) => {
-                const currentStatus = getOrderStatus(order.id);
                 const canCancel =
-                  currentStatus !== "Shipped" &&
-                  currentStatus !== "Delivered" &&
-                  currentStatus !== "Cancelled";
+                  order.status !== "Shipped" &&
+                  order.status !== "Delivered" &&
+                  order.status !== "Cancelled";
+                const isExpanded = expandedRows.has(order.id);
 
                 return (
-                  <TableRow
-                    key={order.id}
-                    className="border-border hover:bg-muted/20"
-                    data-ocid={`admin.orders.row.${index + 1}`}
-                  >
-                    <TableCell>
-                      <span className="font-display font-bold text-primary text-sm">
-                        {order.id}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p className="font-body text-sm font-medium text-foreground leading-tight">
-                          {order.customerName}
-                        </p>
-                        <p className="font-body text-xs text-muted-foreground">
-                          {order.customerMobile}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <span className="font-body text-sm text-muted-foreground">
-                        {order.items.reduce((s, i) => s + i.quantity, 0)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="font-display font-semibold text-foreground text-sm">
-                        {formatPrice(order.totalPrice)}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-body text-xs text-muted-foreground uppercase tracking-wide">
-                        {order.paymentMethod === "cod" ? "COD" : "Online"}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Select
-                        value={currentStatus}
-                        onValueChange={(val) =>
-                          updateOrderStatus(order.id, val as OrderStatus)
-                        }
-                        disabled={currentStatus === "Cancelled"}
-                      >
-                        <SelectTrigger
-                          className="h-8 w-32 border-border bg-background font-body text-xs"
-                          data-ocid={`admin.orders.status_select.${index + 1}`}
+                  <>
+                    <TableRow
+                      key={order.id}
+                      className={`border-border hover:bg-muted/20 ${isExpanded ? "bg-muted/10" : ""}`}
+                      data-ocid={`admin.orders.row.${index + 1}`}
+                    >
+                      {/* Expand toggle */}
+                      <TableCell className="w-8 pr-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleRow(order.id)}
+                          data-ocid={`admin.orders.expand_button.${index + 1}`}
+                          className="p-1 text-muted-foreground hover:text-primary transition-colors rounded"
+                          aria-label={
+                            isExpanded
+                              ? `Collapse order ${order.id}`
+                              : `Expand order ${order.id}`
+                          }
+                          aria-expanded={isExpanded}
                         >
-                          <SelectValue>
-                            <OrderStatusBadge status={currentStatus} />
-                          </SelectValue>
-                        </SelectTrigger>
-                        <SelectContent className="bg-card border-border">
-                          {STATUS_OPTIONS.map((s) => (
-                            <SelectItem
-                              key={s}
-                              value={s}
-                              className="font-body text-sm"
-                            >
-                              <OrderStatusBadge status={s} />
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </TableCell>
-                    <TableCell>
-                      <span className="font-body text-xs text-muted-foreground">
-                        {new Date(order.timestamp).toLocaleDateString("en-IN", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <button
-                        type="button"
-                        disabled={!canCancel}
-                        onClick={() => {
-                          setCancellingOrder(order);
-                          setCancelReason("");
-                        }}
-                        data-ocid={`admin.orders.cancel_button.${index + 1}`}
-                        className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed"
-                        aria-label={`Cancel order ${order.id}`}
+                          {isExpanded ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => toggleRow(order.id)}
+                          className="text-left"
+                        >
+                          <span className="font-display font-bold text-primary text-sm hover:underline underline-offset-2 cursor-pointer">
+                            {order.id}
+                          </span>
+                        </button>
+                      </TableCell>
+                      <TableCell>
+                        <div>
+                          <p className="font-body text-sm font-medium text-foreground leading-tight">
+                            {order.customerName}
+                          </p>
+                          <p className="font-body text-xs text-muted-foreground">
+                            {order.customerMobile}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <span className="font-body text-sm text-muted-foreground">
+                          {order.items.reduce((s, i) => s + i.quantity, 0)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="font-display font-semibold text-foreground text-sm">
+                          {formatPrice(order.totalPrice)}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-body text-xs text-muted-foreground uppercase tracking-wide">
+                          {order.paymentMethod === "cod" ? "COD" : "Online"}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={order.status}
+                          onValueChange={(val) =>
+                            updateOrderStatus(order.id, val as OrderStatus)
+                          }
+                          disabled={order.status === "Cancelled"}
+                        >
+                          <SelectTrigger
+                            className="h-8 w-32 border-border bg-background font-body text-xs"
+                            data-ocid={`admin.orders.status_select.${index + 1}`}
+                          >
+                            <SelectValue>
+                              <OrderStatusBadge status={order.status} />
+                            </SelectValue>
+                          </SelectTrigger>
+                          <SelectContent className="bg-card border-border">
+                            {STATUS_OPTIONS.map((s) => (
+                              <SelectItem
+                                key={s}
+                                value={s}
+                                className="font-body text-sm"
+                              >
+                                <OrderStatusBadge status={s} />
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-body text-xs text-muted-foreground">
+                          {new Date(order.timestamp).toLocaleDateString(
+                            "en-IN",
+                            {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                            },
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <button
+                          type="button"
+                          disabled={!canCancel}
+                          onClick={() => {
+                            setCancellingOrder(order);
+                            setCancelReason("");
+                          }}
+                          data-ocid={`admin.orders.cancel_button.${index + 1}`}
+                          className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label={`Cancel order ${order.id}`}
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </button>
+                      </TableCell>
+                    </TableRow>
+
+                    {/* Expanded details row */}
+                    {isExpanded && (
+                      <TableRow
+                        key={`${order.id}-details`}
+                        className="border-border bg-muted/5 hover:bg-muted/10"
+                        data-ocid={`admin.orders.details_panel.${index + 1}`}
                       >
-                        <XCircle className="h-4 w-4" />
-                      </button>
-                    </TableCell>
-                  </TableRow>
+                        <TableCell colSpan={9} className="py-0">
+                          <div className="px-4 py-4 space-y-4">
+                            {/* Order items table */}
+                            <div>
+                              <p className="font-body text-[10px] tracking-[0.18em] uppercase text-muted-foreground font-semibold mb-2">
+                                Order Items
+                              </p>
+                              <div className="border border-border/60 rounded-sm overflow-hidden">
+                                <table className="w-full text-sm">
+                                  <thead>
+                                    <tr className="border-b border-border/60 bg-muted/30">
+                                      <th className="font-body text-[10px] tracking-widest uppercase text-muted-foreground text-left px-3 py-2">
+                                        Product
+                                      </th>
+                                      <th className="font-body text-[10px] tracking-widest uppercase text-muted-foreground text-center px-3 py-2">
+                                        Size
+                                      </th>
+                                      <th className="font-body text-[10px] tracking-widest uppercase text-muted-foreground text-center px-3 py-2">
+                                        Qty
+                                      </th>
+                                      <th className="font-body text-[10px] tracking-widest uppercase text-muted-foreground text-right px-3 py-2">
+                                        Price Each
+                                      </th>
+                                      <th className="font-body text-[10px] tracking-widest uppercase text-muted-foreground text-right px-3 py-2">
+                                        Line Total
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {order.items.map((item, itemIndex) => (
+                                      <tr
+                                        key={`${item.productId}-${item.size}-${itemIndex}`}
+                                        className={`border-b border-border/40 last:border-0 ${itemIndex % 2 === 0 ? "bg-background/60" : "bg-muted/10"}`}
+                                      >
+                                        <td className="px-3 py-2.5">
+                                          <span className="font-body text-sm font-medium text-foreground">
+                                            {item.productName}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
+                                          <span className="font-body text-xs bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded-sm font-semibold">
+                                            {item.size}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-center">
+                                          <span className="font-body text-sm text-foreground font-medium">
+                                            {item.quantity}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right">
+                                          <span className="font-body text-sm text-muted-foreground">
+                                            {formatPrice(item.priceEach)}
+                                          </span>
+                                        </td>
+                                        <td className="px-3 py-2.5 text-right">
+                                          <span className="font-display font-semibold text-sm text-foreground">
+                                            {formatPrice(
+                                              item.priceEach * item.quantity,
+                                            )}
+                                          </span>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                  <tfoot>
+                                    <tr className="border-t border-border bg-muted/20">
+                                      <td
+                                        colSpan={4}
+                                        className="px-3 py-2 text-right"
+                                      >
+                                        <span className="font-body text-xs tracking-widest uppercase text-muted-foreground">
+                                          Order Total
+                                        </span>
+                                      </td>
+                                      <td className="px-3 py-2 text-right">
+                                        <span className="font-display font-bold text-primary text-sm">
+                                          {formatPrice(order.totalPrice)}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  </tfoot>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* Delivery & contact info */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              {/* Delivery address */}
+                              <div className="bg-background/60 border border-border/60 rounded-sm p-3">
+                                <div className="flex items-center gap-1.5 mb-2">
+                                  <MapPin className="h-3.5 w-3.5 text-primary" />
+                                  <p className="font-body text-[10px] tracking-[0.18em] uppercase text-muted-foreground font-semibold">
+                                    Delivery Address
+                                  </p>
+                                </div>
+                                <p className="font-body text-sm text-foreground leading-relaxed">
+                                  {order.deliveryAddress}
+                                </p>
+                                <p className="font-body text-sm text-foreground">
+                                  {[order.city, order.state, order.pincode]
+                                    .filter(Boolean)
+                                    .join(", ")}
+                                </p>
+                              </div>
+
+                              {/* Contact & order info */}
+                              <div className="bg-background/60 border border-border/60 rounded-sm p-3 space-y-2">
+                                <div className="flex items-center gap-1.5 mb-2">
+                                  <Phone className="h-3.5 w-3.5 text-primary" />
+                                  <p className="font-body text-[10px] tracking-[0.18em] uppercase text-muted-foreground font-semibold">
+                                    Contact Details
+                                  </p>
+                                </div>
+                                <div className="space-y-1.5">
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-body text-xs text-muted-foreground">
+                                      Name
+                                    </span>
+                                    <span className="font-body text-sm text-foreground font-medium">
+                                      {order.customerName}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-body text-xs text-muted-foreground">
+                                      Mobile
+                                    </span>
+                                    <span className="font-body text-sm text-foreground font-medium">
+                                      {order.customerMobile}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-body text-xs text-muted-foreground">
+                                      Payment
+                                    </span>
+                                    <span className="font-body text-sm text-foreground uppercase font-semibold">
+                                      {order.paymentMethod === "cod"
+                                        ? "Cash on Delivery"
+                                        : "Online Payment"}
+                                    </span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-body text-xs text-muted-foreground">
+                                      Order Date
+                                    </span>
+                                    <span className="font-body text-sm text-foreground">
+                                      {new Date(
+                                        order.timestamp,
+                                      ).toLocaleDateString("en-IN", {
+                                        day: "numeric",
+                                        month: "long",
+                                        year: "numeric",
+                                      })}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Cancellation reason */}
+                            {order.cancellationReason && (
+                              <div className="bg-destructive/5 border border-destructive/20 rounded-sm p-3">
+                                <p className="font-body text-[10px] tracking-[0.18em] uppercase text-destructive font-semibold mb-1">
+                                  Cancellation Reason
+                                </p>
+                                <p className="font-body text-sm text-foreground/80">
+                                  {order.cancellationReason}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 );
               })}
             </TableBody>
@@ -1031,43 +1217,7 @@ export function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const {
-    products,
-    loading: productsLoading,
-    isFetching,
-    addProduct: backendAddProduct,
-    updateProduct: backendUpdateProduct,
-    deleteProduct: backendDeleteProduct,
-  } = useBackendProducts();
-
-  const { uploadImage } = useStorageUpload();
-
-  // Upload any base64 data: URLs to blob storage and return resolved URL array.
-  // If an individual image upload fails, it is skipped rather than failing the whole operation.
-  const resolveImages = async (images: string[]): Promise<string[]> => {
-    const resolved: string[] = [];
-    for (const img of images) {
-      if (img.startsWith("data:")) {
-        try {
-          const res = await fetch(img);
-          const blob = await res.blob();
-          const file = new File([blob], "product-image.jpg", {
-            type: blob.type || "image/jpeg",
-          });
-          const url = await uploadImage(file);
-          resolved.push(url);
-        } catch (err) {
-          console.warn("Image upload failed, skipping:", err);
-          // Skip this image rather than failing the whole add/edit operation
-        }
-      } else {
-        resolved.push(img);
-      }
-    }
-    return resolved;
-  };
+  const { products, addProduct, updateProduct, deleteProduct } = useProducts();
 
   // Add Product form state
   const [form, setForm] = useState({
@@ -1076,6 +1226,7 @@ export function AdminPage() {
     category: "",
     sizeRows: [newSizePriceRow()] as SizePriceRow[],
     images: [] as string[],
+    stockLimit: "",
   });
 
   // Edit dialog state
@@ -1093,7 +1244,7 @@ export function AdminPage() {
     }
   };
 
-  const handleAddProduct = async (e: React.FormEvent) => {
+  const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
     const validRows = form.sizeRows.filter(
       (r) => r.size.trim() && r.price.trim(),
@@ -1105,55 +1256,49 @@ export function AdminPage() {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      // Upload images to blob storage first (converts base64 → public URL)
-      const resolvedImages = await resolveImages(form.images);
-      const mainImage =
-        resolvedImages[0] || "/assets/generated/tshirt-black.dim_600x600.jpg";
+    const mainImage =
+      form.images[0] || "/assets/generated/tshirt-black.dim_600x600.jpg";
 
-      const sizePrices: Record<string, number> = {};
-      for (const row of validRows) {
-        sizePrices[row.size.trim().toUpperCase()] = Math.round(
-          Number.parseInt(row.price, 10),
-        );
-      }
-      const sizes = validRows.map((r) => r.size.trim().toUpperCase());
-
-      await backendAddProduct({
-        name: form.name,
-        description: form.description,
-        category: form.category,
-        sizes,
-        sizePrices,
-        images: resolvedImages.length > 0 ? resolvedImages : [mainImage],
-        imageUrl: mainImage,
-        inStock: true,
-      });
-      setForm({
-        name: "",
-        description: "",
-        category: "",
-        sizeRows: [newSizePriceRow()],
-        images: [],
-      });
-      toast.success(`"${form.name}" added to catalog.`);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to add product. Please try again.");
-    } finally {
-      setIsSaving(false);
+    const sizePrices: Record<string, number> = {};
+    for (const row of validRows) {
+      sizePrices[row.size.trim().toUpperCase()] = Math.round(
+        Number.parseInt(row.price, 10),
+      );
     }
+
+    const newProduct: AdminProduct = {
+      id: Date.now(),
+      name: form.name,
+      description: form.description,
+      price: Math.round(Number.parseInt(validRows[0].price, 10)),
+      category: form.category,
+      sizes: validRows.map((r) => r.size.trim().toUpperCase()),
+      sizePrices,
+      imageUrl: mainImage,
+      images: form.images.length > 0 ? form.images : [mainImage],
+      inStock: true,
+      isNew: true,
+      stockLimit:
+        form.stockLimit.trim() !== ""
+          ? Math.max(0, Number.parseInt(form.stockLimit, 10))
+          : undefined,
+    };
+
+    addProduct(newProduct);
+    setForm({
+      name: "",
+      description: "",
+      category: "",
+      sizeRows: [newSizePriceRow()],
+      images: [],
+      stockLimit: "",
+    });
+    toast.success(`"${newProduct.name}" added to catalog.`);
   };
 
-  const handleDeleteProduct = async (product: AdminProduct) => {
-    try {
-      await backendDeleteProduct(product.id);
-      toast.success(`"${product.name}" deleted.`);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to delete product.");
-    }
+  const handleDeleteProduct = (product: AdminProduct) => {
+    deleteProduct(product.id);
+    toast.success(`"${product.name}" deleted.`);
   };
 
   const openEditDialog = (product: AdminProduct) => {
@@ -1184,10 +1329,12 @@ export function AdminPage() {
       sizeRows,
       images: existingImages,
       inStock: product.inStock,
+      stockLimit:
+        product.stockLimit !== undefined ? String(product.stockLimit) : "",
     });
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = () => {
     if (!editingProduct) return;
     const validRows = editForm.sizeRows.filter(
       (r) => r.size.trim() && r.price.trim(),
@@ -1199,41 +1346,36 @@ export function AdminPage() {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      // Upload any newly-added base64 images to blob storage
-      const resolvedImages = await resolveImages(editForm.images);
-      const mainImage = resolvedImages[0] || editingProduct.imageUrl;
+    const mainImage = editForm.images[0] || editingProduct.imageUrl;
 
-      const sizePrices: Record<string, number> = {};
-      for (const row of validRows) {
-        sizePrices[row.size.trim().toUpperCase()] = Math.round(
-          Number.parseInt(row.price, 10),
-        );
-      }
-      const sizes = validRows.map((r) => r.size.trim().toUpperCase());
-
-      await backendUpdateProduct(editingProduct.id, {
-        name: editForm.name,
-        description: editForm.description,
-        category: editForm.category,
-        sizes,
-        sizePrices,
-        images:
-          resolvedImages.length > 0
-            ? resolvedImages
-            : (editingProduct.images ?? []),
-        imageUrl: mainImage,
-        inStock: editForm.inStock,
-      });
-      setEditingProduct(null);
-      toast.success(`"${editForm.name}" updated.`);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to update product. Please try again.");
-    } finally {
-      setIsSaving(false);
+    const sizePrices: Record<string, number> = {};
+    for (const row of validRows) {
+      sizePrices[row.size.trim().toUpperCase()] = Math.round(
+        Number.parseInt(row.price, 10),
+      );
     }
+
+    const updated: AdminProduct = {
+      ...editingProduct,
+      name: editForm.name,
+      description: editForm.description,
+      price: Math.round(Number.parseInt(validRows[0].price, 10)),
+      category: editForm.category,
+      sizes: validRows.map((r) => r.size.trim().toUpperCase()),
+      sizePrices,
+      imageUrl: mainImage,
+      images:
+        editForm.images.length > 0 ? editForm.images : editingProduct.images,
+      inStock: editForm.inStock,
+      stockLimit:
+        editForm.stockLimit.trim() !== ""
+          ? Math.max(0, Number.parseInt(editForm.stockLimit, 10))
+          : undefined,
+    };
+
+    updateProduct(updated);
+    setEditingProduct(null);
+    toast.success(`"${updated.name}" updated.`);
   };
 
   if (!isAuthenticated) {
@@ -1457,22 +1599,38 @@ export function AdminPage() {
                       />
                     </div>
 
+                    <div>
+                      <Label
+                        htmlFor="product-stock-limit"
+                        className="font-body text-xs tracking-widest uppercase text-muted-foreground mb-1.5 block"
+                      >
+                        Stock Limit{" "}
+                        <span className="normal-case font-normal text-muted-foreground/60">
+                          (leave blank for unlimited)
+                        </span>
+                      </Label>
+                      <Input
+                        id="product-stock-limit"
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={form.stockLimit}
+                        onChange={(e) =>
+                          setForm((f) => ({ ...f, stockLimit: e.target.value }))
+                        }
+                        placeholder="e.g. 50"
+                        className="bg-background border-border font-body text-sm"
+                        data-ocid="admin.product.stock_limit_input"
+                      />
+                    </div>
+
                     <Button
                       type="submit"
-                      disabled={isSaving || isFetching}
                       data-ocid="admin.add_product_button"
-                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 gap-2 disabled:opacity-60"
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 gap-2"
                     >
-                      {isSaving || isFetching ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Plus className="h-4 w-4" />
-                      )}
-                      {isFetching
-                        ? "Connecting..."
-                        : isSaving
-                          ? "Uploading..."
-                          : "Add Product"}
+                      <Plus className="h-4 w-4" />
+                      Add Product
                     </Button>
                   </form>
                 </div>
@@ -1491,96 +1649,82 @@ export function AdminPage() {
                     <h2 className="font-display text-lg font-semibold text-foreground">
                       Product Catalog
                     </h2>
-                    {productsLoading ? (
-                      <span className="ml-auto">
-                        <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                      </span>
-                    ) : (
-                      <span className="ml-auto text-xs text-muted-foreground font-body">
-                        {products.length} items
-                      </span>
-                    )}
+                    <span className="ml-auto text-xs text-muted-foreground font-body">
+                      {products.length} items
+                    </span>
                   </div>
 
-                  {productsLoading && products.length === 0 ? (
-                    <div
-                      className="flex items-center justify-center py-16 gap-3 text-muted-foreground font-body text-sm"
-                      data-ocid="admin.products.loading_state"
-                    >
-                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                      Loading products from backend…
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow className="border-border hover:bg-transparent">
-                            <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
-                              Product
-                            </TableHead>
-                            <TableHead className="font-body text-xs tracking-widests uppercase text-muted-foreground">
-                              Category
-                            </TableHead>
-                            <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
-                              Price
-                            </TableHead>
-                            <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
-                              Status
-                            </TableHead>
-                            <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
-                              Actions
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {products.map((product, index) => {
-                            const displayImage =
-                              product.images?.[0] || product.imageUrl;
-                            const imageCount = product.images?.length ?? 1;
-                            return (
-                              <TableRow
-                                key={product.id}
-                                className="border-border hover:bg-muted/30"
-                                data-ocid={`admin.product.row.${index + 1}`}
-                              >
-                                <TableCell>
-                                  <div className="flex items-center gap-3">
-                                    <div className="relative w-10 h-10 rounded overflow-hidden bg-muted flex-shrink-0">
-                                      <img
-                                        src={displayImage}
-                                        alt={product.name}
-                                        className="w-full h-full object-cover"
-                                      />
-                                      {imageCount > 1 && (
-                                        <span className="absolute bottom-0 right-0 bg-black/60 text-white font-body text-[8px] px-1 leading-4">
-                                          +{imageCount - 1}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div>
-                                      <p className="font-body text-sm font-semibold text-foreground leading-tight">
-                                        {product.name}
-                                      </p>
-                                      <p className="font-body text-xs text-muted-foreground">
-                                        {product.sizes.join(", ")}
-                                      </p>
-                                    </div>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="border-border hover:bg-transparent">
+                          <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
+                            Product
+                          </TableHead>
+                          <TableHead className="font-body text-xs tracking-widests uppercase text-muted-foreground">
+                            Category
+                          </TableHead>
+                          <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
+                            Price
+                          </TableHead>
+                          <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
+                            Status
+                          </TableHead>
+                          <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
+                            Actions
+                          </TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {products.map((product, index) => {
+                          const displayImage =
+                            product.images?.[0] || product.imageUrl;
+                          const imageCount = product.images?.length ?? 1;
+                          return (
+                            <TableRow
+                              key={product.id}
+                              className="border-border hover:bg-muted/30"
+                              data-ocid={`admin.product.row.${index + 1}`}
+                            >
+                              <TableCell>
+                                <div className="flex items-center gap-3">
+                                  <div className="relative w-10 h-10 rounded overflow-hidden bg-muted flex-shrink-0">
+                                    <img
+                                      src={displayImage}
+                                      alt={product.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                    {imageCount > 1 && (
+                                      <span className="absolute bottom-0 right-0 bg-black/60 text-white font-body text-[8px] px-1 leading-4">
+                                        +{imageCount - 1}
+                                      </span>
+                                    )}
                                   </div>
-                                </TableCell>
-                                <TableCell>
-                                  <span className="font-body text-xs text-muted-foreground tracking-wide">
-                                    {product.category}
-                                  </span>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <span className="font-display font-semibold text-primary text-sm">
-                                    {product.sizePrices &&
-                                    Object.keys(product.sizePrices).length > 1
-                                      ? `from ${formatPrice(Math.min(...Object.values(product.sizePrices)))}`
-                                      : formatPrice(product.price)}
-                                  </span>
-                                </TableCell>
-                                <TableCell>
+                                  <div>
+                                    <p className="font-body text-sm font-semibold text-foreground leading-tight">
+                                      {product.name}
+                                    </p>
+                                    <p className="font-body text-xs text-muted-foreground">
+                                      {product.sizes.join(", ")}
+                                    </p>
+                                  </div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <span className="font-body text-xs text-muted-foreground tracking-wide">
+                                  {product.category}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <span className="font-display font-semibold text-primary text-sm">
+                                  {product.sizePrices &&
+                                  Object.keys(product.sizePrices).length > 1
+                                    ? `from ${formatPrice(Math.min(...Object.values(product.sizePrices)))}`
+                                    : formatPrice(product.price)}
+                                </span>
+                              </TableCell>
+                              <TableCell>
+                                <div className="space-y-0.5">
                                   <span
                                     className={`text-xs font-body ${
                                       product.inStock
@@ -1592,38 +1736,41 @@ export function AdminPage() {
                                       ? "In Stock"
                                       : "Out of Stock"}
                                   </span>
-                                </TableCell>
-                                <TableCell className="text-right">
-                                  <div className="flex items-center justify-end gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => openEditDialog(product)}
-                                      data-ocid={`admin.product.edit_button.${index + 1}`}
-                                      className="p-1.5 text-muted-foreground hover:text-primary transition-colors rounded"
-                                      aria-label={`Edit ${product.name}`}
-                                    >
-                                      <Pencil className="h-3.5 w-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleDeleteProduct(product)
-                                      }
-                                      data-ocid={`admin.product.delete_button.${index + 1}`}
-                                      className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded"
-                                      aria-label={`Delete ${product.name}`}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
-                                  </div>
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                                  {product.stockLimit !== undefined && (
+                                    <p className="text-[10px] font-body text-muted-foreground">
+                                      Limit: {product.stockLimit}
+                                    </p>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditDialog(product)}
+                                    data-ocid={`admin.product.edit_button.${index + 1}`}
+                                    className="p-1.5 text-muted-foreground hover:text-primary transition-colors rounded"
+                                    aria-label={`Edit ${product.name}`}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteProduct(product)}
+                                    data-ocid={`admin.product.delete_button.${index + 1}`}
+                                    className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded"
+                                    aria-label={`Delete ${product.name}`}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
               </motion.div>
             </div>
@@ -1752,6 +1899,31 @@ export function AdminPage() {
               />
             </div>
 
+            <div>
+              <Label
+                htmlFor="edit-stock-limit"
+                className="font-body text-xs tracking-widest uppercase text-muted-foreground mb-1.5 block"
+              >
+                Stock Limit{" "}
+                <span className="normal-case font-normal text-muted-foreground/60">
+                  (leave blank for unlimited)
+                </span>
+              </Label>
+              <Input
+                id="edit-stock-limit"
+                type="number"
+                min="0"
+                step="1"
+                value={editForm.stockLimit}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, stockLimit: e.target.value }))
+                }
+                placeholder="e.g. 50"
+                className="bg-background border-border font-body text-sm"
+                data-ocid="admin.edit_product.stock_limit_input"
+              />
+            </div>
+
             <div className="flex items-center gap-3">
               <Checkbox
                 id="edit-instock"
@@ -1781,12 +1953,10 @@ export function AdminPage() {
             </Button>
             <Button
               onClick={handleSaveEdit}
-              disabled={isSaving}
               data-ocid="admin.edit_product.save_button"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold disabled:opacity-60 gap-2"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold"
             >
-              {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-              {isSaving ? "Saving..." : "Save Changes"}
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

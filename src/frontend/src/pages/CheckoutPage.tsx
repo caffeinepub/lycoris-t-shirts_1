@@ -4,7 +4,6 @@ import { Separator } from "@/components/ui/separator";
 import { useCart } from "@/context/CartContext";
 import { useOrders } from "@/context/OrdersContext";
 import { formatPrice } from "@/data/products";
-import { useBackendOrders } from "@/hooks/useBackendOrders";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -94,7 +93,6 @@ export function CheckoutPage({
 }: CheckoutPageProps) {
   const { cartItems, clearCart, cartTotal } = useCart();
   const { addOrder } = useOrders();
-  const { placeOrder: placeBackendOrder } = useBackendOrders();
   const [step, setStep] = useState<Step>(1);
   const [placedOrderId, setPlacedOrderId] = useState<string>("");
 
@@ -145,8 +143,10 @@ export function CheckoutPage({
 
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
+    await new Promise((r) => setTimeout(r, 900));
 
-    const orderData = {
+    // Build order data
+    const orderId = addOrder({
       customerName: address.fullName,
       customerMobile: address.mobile,
       deliveryAddress: `${address.address1}${address.address2 ? `, ${address.address2}` : ""}`,
@@ -163,29 +163,11 @@ export function CheckoutPage({
       totalPrice: cartTotal,
       paymentMethod,
       timestamp: Date.now(),
-    };
-
-    // Save locally first (for "My Orders" page — no auth)
-    const localOrderId = addOrder(orderData);
-
-    // Also save to backend so admin can see all orders
-    let finalOrderId = localOrderId;
-    try {
-      const backendOrderId = await placeBackendOrder(orderData);
-      finalOrderId = backendOrderId;
-      // Update the local order with the backend-assigned ID
-      // (local already created — backend ID is shown to user for reference)
-    } catch (err) {
-      console.error(
-        "Backend order placement failed (order still saved locally):",
-        err,
-      );
-      // Fall back to local order ID — order is preserved in localStorage
-    }
+    });
 
     clearCart();
     setIsPlacingOrder(false);
-    setPlacedOrderId(finalOrderId);
+    setPlacedOrderId(orderId);
     setStep(4);
   };
 

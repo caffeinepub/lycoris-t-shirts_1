@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { CartProvider } from "@/context/CartContext";
 import { HeroConfigProvider } from "@/context/HeroConfigContext";
 import { OrdersProvider } from "@/context/OrdersContext";
+import { ProductsProvider } from "@/context/ProductsContext";
 import type { Product } from "@/data/products";
 import { AdminPage } from "@/pages/AdminPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
@@ -115,11 +116,13 @@ function AppContent() {
 export default function App() {
   return (
     <HeroConfigProvider>
-      <OrdersProvider>
-        <CartProvider>
-          <AppContent />
-        </CartProvider>
-      </OrdersProvider>
+      <ProductsProvider>
+        <OrdersProvider>
+          <CartProvider>
+            <AppContent />
+          </CartProvider>
+        </OrdersProvider>
+      </ProductsProvider>
     </HeroConfigProvider>
   );
 }

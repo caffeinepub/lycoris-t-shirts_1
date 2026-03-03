@@ -9,6 +9,7 @@ export interface Product {
   images?: string[]; // multiple images (base64 or URL)
   category: string;
   inStock: boolean;
+  stockLimit?: number; // maximum stock quantity (undefined = unlimited)
 }
 
 export const PRODUCTS: Product[] = [

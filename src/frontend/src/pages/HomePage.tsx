@@ -1,9 +1,8 @@
 import { ProductCard } from "@/components/ProductCard";
 import { Button } from "@/components/ui/button";
 import { useHeroConfig } from "@/context/HeroConfigContext";
-import { PRODUCTS } from "@/data/products";
+import { useProducts } from "@/context/ProductsContext";
 import type { Product } from "@/data/products";
-import { useBackendProducts } from "@/hooks/useBackendProducts";
 import { ArrowRight, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -13,10 +12,8 @@ interface HomePageProps {
 }
 
 export function HomePage({ onNavigate, onProductSelect }: HomePageProps) {
-  const { products: backendProducts, loading } = useBackendProducts();
-  const allProducts =
-    backendProducts.length > 0 ? backendProducts : !loading ? PRODUCTS : [];
-  const featured = allProducts.slice(0, 4);
+  const { products } = useProducts();
+  const featured = products.slice(0, 4);
   const { heroConfig } = useHeroConfig();
 
   const heroBg = heroConfig.heroBgImage
