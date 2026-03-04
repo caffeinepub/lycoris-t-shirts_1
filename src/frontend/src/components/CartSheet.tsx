@@ -18,8 +18,14 @@ interface CartSheetProps {
   onCheckout: () => void;
 }
 
+const FREE_DELIVERY_THRESHOLD = 499;
+const DELIVERY_CHARGE = 49;
+
 export function CartSheet({ open, onOpenChange, onCheckout }: CartSheetProps) {
   const { cartItems, removeFromCart, updateQuantity, cartTotal } = useCart();
+  const deliveryCharge =
+    cartTotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_CHARGE;
+  const orderTotal = cartTotal + deliveryCharge;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -142,6 +148,19 @@ export function CartSheet({ open, onOpenChange, onCheckout }: CartSheetProps) {
 
             {/* Summary + Checkout */}
             <div className="px-6 py-5 border-t border-border space-y-4">
+              {/* Free delivery progress hint */}
+              {cartTotal < FREE_DELIVERY_THRESHOLD && (
+                <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/25 rounded-sm px-3 py-2.5">
+                  <span className="text-xs font-body text-green-400 leading-tight">
+                    🚚 Add{" "}
+                    <span className="font-semibold">
+                      {formatPrice(FREE_DELIVERY_THRESHOLD - cartTotal)}
+                    </span>{" "}
+                    more for{" "}
+                    <span className="font-semibold">FREE delivery!</span>
+                  </span>
+                </div>
+              )}
               {/* Totals */}
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-muted-foreground">
@@ -149,13 +168,21 @@ export function CartSheet({ open, onOpenChange, onCheckout }: CartSheetProps) {
                   <span>{formatPrice(cartTotal)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Shipping</span>
-                  <span className="text-green-400 font-semibold">Free</span>
+                  <span>Delivery</span>
+                  {deliveryCharge === 0 ? (
+                    <span className="text-green-400 font-semibold">FREE</span>
+                  ) : (
+                    <span className="text-foreground font-semibold">
+                      {formatPrice(deliveryCharge)}
+                    </span>
+                  )}
                 </div>
                 <Separator className="bg-border" />
                 <div className="flex justify-between font-display text-lg font-semibold text-foreground">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(cartTotal)}</span>
+                  <span className="text-primary">
+                    {formatPrice(orderTotal)}
+                  </span>
                 </div>
               </div>
 

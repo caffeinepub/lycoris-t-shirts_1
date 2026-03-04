@@ -7,6 +7,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type Order,
@@ -20,6 +27,7 @@ import {
   CreditCard,
   MapPin,
   Package,
+  RotateCcw,
   ShoppingBag,
   Truck,
   XCircle,
@@ -43,6 +51,10 @@ function statusColor(status: OrderStatus): string {
       return "bg-green-500/15 text-green-400 border-green-500/30";
     case "Cancelled":
       return "bg-destructive/15 text-destructive border-destructive/30";
+    case "Return Requested":
+      return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+    case "Returned":
+      return "bg-teal-500/15 text-teal-400 border-teal-500/30";
   }
 }
 
@@ -58,6 +70,10 @@ function statusIcon(status: OrderStatus) {
       return <Package className="h-3.5 w-3.5" />;
     case "Cancelled":
       return <XCircle className="h-3.5 w-3.5" />;
+    case "Return Requested":
+      return <RotateCcw className="h-3.5 w-3.5" />;
+    case "Returned":
+      return <RotateCcw className="h-3.5 w-3.5" />;
   }
 }
 
@@ -141,9 +157,125 @@ function CancelDialog({ order, onConfirm, onClose }: CancelDialogProps) {
   );
 }
 
+const RETURN_REASONS = [
+  "Wrong size",
+  "Damaged product",
+  "Not as described",
+  "Changed mind",
+  "Other",
+];
+
+interface ReturnDialogProps {
+  order: Order;
+  onConfirm: (reason: string, description: string) => void;
+  onClose: () => void;
+}
+
+function ReturnDialog({ order, onConfirm, onClose }: ReturnDialogProps) {
+  const [reason, setReason] = useState("");
+  const [description, setDescription] = useState("");
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent
+        className="bg-card border-border max-w-md"
+        data-ocid="orders.return.dialog"
+      >
+        <DialogHeader>
+          <DialogTitle className="font-display text-lg font-semibold text-foreground">
+            Request Return
+          </DialogTitle>
+          <DialogDescription className="font-body text-muted-foreground text-sm">
+            Submit a return request for order{" "}
+            <span className="text-foreground font-semibold">{order.id}</span>.
+            Returns are accepted within 7 days of delivery.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-2 space-y-4">
+          <div>
+            <label
+              htmlFor="return-reason"
+              className="block text-xs font-body font-semibold text-muted-foreground uppercase tracking-wider mb-2"
+            >
+              Reason for Return *
+            </label>
+            <Select value={reason} onValueChange={setReason}>
+              <SelectTrigger
+                id="return-reason"
+                className="bg-background border-border font-body text-sm"
+                data-ocid="orders.return.reason_select"
+              >
+                <SelectValue placeholder="Select a reason..." />
+              </SelectTrigger>
+              <SelectContent className="bg-card border-border">
+                {RETURN_REASONS.map((r) => (
+                  <SelectItem key={r} value={r} className="font-body text-sm">
+                    {r}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="return-description"
+              className="block text-xs font-body font-semibold text-muted-foreground uppercase tracking-wider mb-2"
+            >
+              Additional Details{" "}
+              <span className="normal-case font-normal text-muted-foreground/60">
+                (optional)
+              </span>
+            </label>
+            <Textarea
+              id="return-description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Please describe the issue in detail..."
+              className="bg-background border-border font-body text-sm resize-none"
+              data-ocid="orders.return.description_textarea"
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-ocid="orders.return.cancel_button"
+            className="border-border font-body text-sm"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              if (!reason) return;
+              onConfirm(reason, description);
+            }}
+            disabled={!reason}
+            data-ocid="orders.return.confirm_button"
+            className="bg-amber-600 hover:bg-amber-700 text-white font-body font-semibold text-sm"
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+            Submit Return Request
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
-  const { orders, cancelOrder } = useOrders();
+  const { orders, cancelOrder, requestReturn } = useOrders();
   const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
+  const [returningOrder, setReturningOrder] = useState<Order | null>(null);
 
   const sortedOrders = [...orders].sort((a, b) => b.timestamp - a.timestamp);
 
@@ -151,6 +283,12 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
     if (!cancellingOrder) return;
     cancelOrder(cancellingOrder.id, reason);
     setCancellingOrder(null);
+  };
+
+  const handleReturnConfirm = (reason: string, description: string) => {
+    if (!returningOrder) return;
+    requestReturn(returningOrder.id, reason, description);
+    setReturningOrder(null);
   };
 
   return (
@@ -214,6 +352,7 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
             {sortedOrders.map((order, index) => {
               const canCancel =
                 order.status === "Pending" || order.status === "Confirmed";
+              const canReturn = order.status === "Delivered";
               return (
                 <motion.div
                   key={order.id}
@@ -275,6 +414,18 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
                           Cancel
                         </Button>
                       )}
+                      {canReturn && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setReturningOrder(order)}
+                          data-ocid={`orders.return_button.${index + 1}`}
+                          className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500 font-body text-xs h-8 px-3 rounded-sm"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                          Return
+                        </Button>
+                      )}
                     </div>
                   </div>
 
@@ -333,6 +484,25 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
                       </p>
                     </div>
                   )}
+
+                  {/* Return info */}
+                  {(order.status === "Return Requested" ||
+                    order.status === "Returned") &&
+                    order.returnReason && (
+                      <div className="px-5 py-3 bg-amber-500/5 border-t border-amber-500/20">
+                        <p className="font-body text-xs text-muted-foreground">
+                          <span className="text-amber-400 font-semibold">
+                            Return reason:
+                          </span>{" "}
+                          {order.returnReason}
+                          {order.returnDescription && (
+                            <span className="block mt-0.5 text-muted-foreground/70">
+                              {order.returnDescription}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
                 </motion.div>
               );
             })}
@@ -346,6 +516,15 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
           order={cancellingOrder}
           onConfirm={handleCancelConfirm}
           onClose={() => setCancellingOrder(null)}
+        />
+      )}
+
+      {/* Return Dialog */}
+      {returningOrder && (
+        <ReturnDialog
+          order={returningOrder}
+          onConfirm={handleReturnConfirm}
+          onClose={() => setReturningOrder(null)}
         />
       )}
     </main>

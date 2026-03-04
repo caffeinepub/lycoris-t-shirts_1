@@ -34,6 +34,7 @@ import {
   useOrders,
 } from "@/context/OrdersContext";
 import { useProducts } from "@/context/ProductsContext";
+import { useReviews } from "@/context/ReviewsContext";
 import { type Product, formatPrice } from "@/data/products";
 import {
   ChevronDown,
@@ -49,6 +50,7 @@ import {
   RefreshCw,
   ShoppingCart,
   Sparkles,
+  Star,
   Trash2,
   X,
   XCircle,
@@ -422,6 +424,8 @@ function OrderStatusBadge({ status }: { status: OrderStatus }) {
     Shipped: "bg-purple-500/15 text-purple-400 border-purple-500/30",
     Delivered: "bg-green-500/15 text-green-400 border-green-500/30",
     Cancelled: "bg-destructive/15 text-destructive border-destructive/30",
+    "Return Requested": "bg-amber-500/15 text-amber-400 border-amber-500/30",
+    Returned: "bg-teal-500/15 text-teal-400 border-teal-500/30",
   };
   return (
     <span
@@ -459,6 +463,8 @@ function OrdersTab() {
     "Shipped",
     "Delivered",
     "Cancelled",
+    "Return Requested",
+    "Returned",
   ];
 
   const handleCancelConfirm = () => {
@@ -536,14 +542,16 @@ function OrdersTab() {
                 const canCancel =
                   order.status !== "Shipped" &&
                   order.status !== "Delivered" &&
-                  order.status !== "Cancelled";
+                  order.status !== "Cancelled" &&
+                  order.status !== "Return Requested" &&
+                  order.status !== "Returned";
                 const isExpanded = expandedRows.has(order.id);
 
                 return (
                   <>
                     <TableRow
                       key={order.id}
-                      className={`border-border hover:bg-muted/20 ${isExpanded ? "bg-muted/10" : ""}`}
+                      className={`border-border hover:bg-muted/20 ${isExpanded ? "bg-muted/10" : ""} ${order.status === "Return Requested" ? "border-l-2 border-l-amber-500/70 bg-amber-500/5" : ""}`}
                       data-ocid={`admin.orders.row.${index + 1}`}
                     >
                       {/* Expand toggle */}
@@ -834,6 +842,23 @@ function OrdersTab() {
                                 </p>
                                 <p className="font-body text-sm text-foreground/80">
                                   {order.cancellationReason}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Return reason */}
+                            {order.returnReason && (
+                              <div className="bg-amber-500/5 border border-amber-500/20 rounded-sm p-3">
+                                <p className="font-body text-[10px] tracking-[0.18em] uppercase text-amber-400 font-semibold mb-1">
+                                  Return Reason
+                                </p>
+                                <p className="font-body text-sm text-foreground/80">
+                                  {order.returnReason}
+                                  {order.returnDescription && (
+                                    <span className="block mt-1 text-muted-foreground/70 text-xs">
+                                      {order.returnDescription}
+                                    </span>
+                                  )}
                                 </p>
                               </div>
                             )}
@@ -1218,6 +1243,7 @@ export function AdminPage() {
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState(false);
   const { products, addProduct, updateProduct, deleteProduct } = useProducts();
+  const { getReviews } = useReviews();
 
   // Add Product form state
   const [form, setForm] = useState({
@@ -1670,6 +1696,9 @@ export function AdminPage() {
                           <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground">
                             Status
                           </TableHead>
+                          <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-center">
+                            Rating
+                          </TableHead>
                           <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
                             Actions
                           </TableHead>
@@ -1680,6 +1709,14 @@ export function AdminPage() {
                           const displayImage =
                             product.images?.[0] || product.imageUrl;
                           const imageCount = product.images?.length ?? 1;
+                          const productReviews = getReviews(product.id);
+                          const avgRating =
+                            productReviews.length > 0
+                              ? productReviews.reduce(
+                                  (sum, r) => sum + r.rating,
+                                  0,
+                                ) / productReviews.length
+                              : null;
                           return (
                             <TableRow
                               key={product.id}
@@ -1742,6 +1779,25 @@ export function AdminPage() {
                                     </p>
                                   )}
                                 </div>
+                              </TableCell>
+                              <TableCell className="text-center">
+                                {avgRating !== null ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <Star className="h-3 w-3 fill-amber-400 text-amber-400 flex-shrink-0" />
+                                    <span className="font-body text-xs font-semibold text-foreground">
+                                      {(
+                                        Math.round(avgRating * 10) / 10
+                                      ).toFixed(1)}
+                                    </span>
+                                    <span className="font-body text-[10px] text-muted-foreground">
+                                      ({productReviews.length})
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="font-body text-xs text-muted-foreground/50">
+                                    —
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">

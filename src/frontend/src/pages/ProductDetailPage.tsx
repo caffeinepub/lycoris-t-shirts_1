@@ -1,7 +1,8 @@
+import { ReviewSection } from "@/components/ReviewSection";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/context/CartContext";
 import { type Product, formatPrice } from "@/data/products";
-import { ArrowLeft, Check, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Check, ShoppingBag, Zap } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -10,12 +11,14 @@ interface ProductDetailPageProps {
   product: Product;
   onBack: () => void;
   onCartOpen: () => void;
+  onBuyNow: () => void;
 }
 
 export function ProductDetailPage({
   product,
   onBack,
   onCartOpen,
+  onBuyNow,
 }: ProductDetailPageProps) {
   const allImages = product.images?.length
     ? product.images
@@ -43,6 +46,17 @@ export function ProductDetailPage({
         onClick: onCartOpen,
       },
     });
+  };
+
+  const handleBuyNow = () => {
+    if (!selectedSize) {
+      setSizeError(true);
+      return;
+    }
+    setSizeError(false);
+    const effectivePrice = product.sizePrices?.[selectedSize] ?? product.price;
+    addToCart(product, selectedSize, effectivePrice);
+    onBuyNow();
   };
 
   return (
@@ -193,6 +207,17 @@ export function ProductDetailPage({
               )}
             </Button>
 
+            {/* Place Order (Buy Now) */}
+            <Button
+              onClick={handleBuyNow}
+              data-ocid="product.buy_now_button"
+              variant="outline"
+              className="h-14 font-body font-semibold tracking-widest uppercase text-sm gap-2 rounded-none border-primary text-primary hover:bg-primary/10 transition-all duration-300 mt-2"
+            >
+              <Zap className="h-4 w-4" />
+              Place Order
+            </Button>
+
             {/* Details */}
             <div className="mt-10 pt-8 border-t border-border space-y-3">
               <div className="flex justify-between text-sm font-body">
@@ -222,8 +247,11 @@ export function ProductDetailPage({
         </div>
       </div>
 
+      {/* Reviews */}
+      <ReviewSection productId={product.id} />
+
       {/* Footer */}
-      <footer className="py-8 px-4 sm:px-6 border-t border-border mt-16">
+      <footer className="py-8 px-4 sm:px-6 border-t border-border mt-0">
         <div className="max-w-7xl mx-auto text-center">
           <p className="text-muted-foreground font-body text-xs">
             © {new Date().getFullYear()}. Built with love using{" "}

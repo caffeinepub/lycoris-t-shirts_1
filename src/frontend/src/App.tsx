@@ -5,6 +5,7 @@ import { CartProvider } from "@/context/CartContext";
 import { HeroConfigProvider } from "@/context/HeroConfigContext";
 import { OrdersProvider } from "@/context/OrdersContext";
 import { ProductsProvider } from "@/context/ProductsContext";
+import { ReviewsProvider } from "@/context/ReviewsContext";
 import type { Product } from "@/data/products";
 import { AdminPage } from "@/pages/AdminPage";
 import { CheckoutPage } from "@/pages/CheckoutPage";
@@ -61,6 +62,7 @@ function AppContent() {
           product={selectedProduct}
           onBack={handleBackToShop}
           onCartOpen={() => setCartOpen(true)}
+          onBuyNow={() => handleNavigate("checkout")}
         />
       )}
 
@@ -117,11 +119,13 @@ export default function App() {
   return (
     <HeroConfigProvider>
       <ProductsProvider>
-        <OrdersProvider>
-          <CartProvider>
-            <AppContent />
-          </CartProvider>
-        </OrdersProvider>
+        <ReviewsProvider>
+          <OrdersProvider>
+            <CartProvider>
+              <AppContent />
+            </CartProvider>
+          </OrdersProvider>
+        </ReviewsProvider>
       </ProductsProvider>
     </HeroConfigProvider>
   );

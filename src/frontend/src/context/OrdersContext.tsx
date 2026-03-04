@@ -20,7 +20,9 @@ export type OrderStatus =
   | "Confirmed"
   | "Shipped"
   | "Delivered"
-  | "Cancelled";
+  | "Cancelled"
+  | "Return Requested"
+  | "Returned";
 
 export interface Order {
   id: string;
@@ -36,6 +38,8 @@ export interface Order {
   status: OrderStatus;
   timestamp: number;
   cancellationReason?: string;
+  returnReason?: string;
+  returnDescription?: string;
 }
 
 type NewOrderData = Omit<Order, "id" | "status">;
@@ -45,6 +49,7 @@ interface OrdersContextValue {
   addOrder: (data: NewOrderData) => string;
   cancelOrder: (id: string, reason: string) => void;
   updateOrderStatus: (id: string, newStatus: OrderStatus) => void;
+  requestReturn: (id: string, reason: string, description?: string) => void;
 }
 
 const STORAGE_KEY = "lycoris_orders";
@@ -115,9 +120,33 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const requestReturn = useCallback(
+    (id: string, reason: string, description?: string) => {
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== id) return o;
+          if (o.status !== "Delivered") return o;
+          return {
+            ...o,
+            status: "Return Requested" as OrderStatus,
+            returnReason: reason,
+            returnDescription: description,
+          };
+        }),
+      );
+    },
+    [],
+  );
+
   return (
     <OrdersContext.Provider
-      value={{ orders, addOrder, cancelOrder, updateOrderStatus }}
+      value={{
+        orders,
+        addOrder,
+        cancelOrder,
+        updateOrderStatus,
+        requestReturn,
+      }}
     >
       {children}
     </OrdersContext.Provider>

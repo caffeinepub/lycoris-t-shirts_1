@@ -93,6 +93,8 @@ export function CheckoutPage({
 }: CheckoutPageProps) {
   const { cartItems, clearCart, cartTotal } = useCart();
   const { addOrder } = useOrders();
+  const deliveryCharge = cartTotal >= 499 ? 0 : 49;
+  const orderTotal = cartTotal + deliveryCharge;
   const [step, setStep] = useState<Step>(1);
   const [placedOrderId, setPlacedOrderId] = useState<string>("");
 
@@ -160,7 +162,7 @@ export function CheckoutPage({
         quantity: item.quantity,
         priceEach: item.effectivePrice,
       })),
-      totalPrice: cartTotal,
+      totalPrice: orderTotal,
       paymentMethod,
       timestamp: Date.now(),
     });
@@ -615,9 +617,10 @@ export function CheckoutPage({
                       <Truck className="h-4 w-4 text-primary mt-0.5 flex-shrink-0" />
                       <p className="text-xs font-body text-muted-foreground leading-relaxed">
                         <span className="text-foreground font-semibold">
-                          Free delivery
+                          Free delivery on orders above Rs 499.
                         </span>{" "}
-                        on all orders. Expected delivery in 5–7 business days.
+                        Orders below Rs 499 have a Rs 49 delivery charge.
+                        Expected delivery in 5–7 business days.
                       </p>
                     </div>
 
@@ -713,13 +716,21 @@ export function CheckoutPage({
                       <span className="text-muted-foreground">
                         Delivery Charges
                       </span>
-                      <span className="text-green-400 font-semibold">FREE</span>
+                      {deliveryCharge === 0 ? (
+                        <span className="text-green-400 font-semibold">
+                          FREE
+                        </span>
+                      ) : (
+                        <span className="text-foreground font-semibold">
+                          {formatPrice(deliveryCharge)}
+                        </span>
+                      )}
                     </div>
                     <Separator className="bg-border my-1" />
                     <div className="flex justify-between font-body font-bold text-foreground text-base">
                       <span>Total Amount</span>
                       <span className="text-primary text-lg">
-                        {formatPrice(cartTotal)}
+                        {formatPrice(orderTotal)}
                       </span>
                     </div>
                   </div>
@@ -976,7 +987,7 @@ export function CheckoutPage({
                             Placing Order...
                           </span>
                         ) : (
-                          `Place Order · ${formatPrice(cartTotal)}`
+                          `Place Order · ${formatPrice(orderTotal)}`
                         )}
                       </Button>
                     </div>
@@ -1014,16 +1025,24 @@ export function CheckoutPage({
                 <Separator className="bg-border" />
                 <div className="flex justify-between text-sm font-body text-muted-foreground">
                   <span>Delivery</span>
-                  <span className="text-green-400 font-semibold">FREE</span>
+                  {deliveryCharge === 0 ? (
+                    <span className="text-green-400 font-semibold">FREE</span>
+                  ) : (
+                    <span className="text-foreground font-semibold">
+                      {formatPrice(deliveryCharge)}
+                    </span>
+                  )}
                 </div>
                 <Separator className="bg-border" />
                 <div className="flex justify-between font-body font-bold text-foreground">
                   <span>Total</span>
-                  <span className="text-primary">{formatPrice(cartTotal)}</span>
+                  <span className="text-primary">
+                    {formatPrice(orderTotal)}
+                  </span>
                 </div>
-                {cartTotal > 0 && (
+                {deliveryCharge === 0 && cartTotal > 0 && (
                   <p className="text-xs font-body text-green-400">
-                    You save on delivery charges!
+                    You get free delivery on this order!
                   </p>
                 )}
               </div>
@@ -1037,11 +1056,11 @@ export function CheckoutPage({
                 </div>
                 <div className="flex items-center gap-2 text-xs font-body text-muted-foreground">
                   <Package className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                  <span>Easy 30-Day Returns</span>
+                  <span>Easy 7-Day Returns</span>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-body text-muted-foreground">
                   <Truck className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                  <span>Free Delivery on All Orders</span>
+                  <span>Free Delivery on Orders Above Rs 499</span>
                 </div>
               </div>
             </div>
