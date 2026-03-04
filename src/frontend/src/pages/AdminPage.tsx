@@ -438,9 +438,17 @@ function OrderStatusBadge({ status }: { status: OrderStatus }) {
 
 // ---- Orders Tab ----
 function OrdersTab() {
-  const { orders, cancelOrder, updateOrderStatus } = useOrders();
+  const {
+    orders,
+    cancelOrder,
+    updateOrderStatus,
+    deleteOrder,
+    clearAllOrders,
+  } = useOrders();
   const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [deletingOrder, setDeletingOrder] = useState<Order | null>(null);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
 
   const toggleRow = (orderId: string) => {
@@ -475,6 +483,19 @@ function OrdersTab() {
     toast.success(`Order ${cancellingOrder.id} has been cancelled.`);
   };
 
+  const handleDeleteConfirm = () => {
+    if (!deletingOrder) return;
+    deleteOrder(deletingOrder.id);
+    setDeletingOrder(null);
+    toast.success(`Order ${deletingOrder.id} deleted from history.`);
+  };
+
+  const handleClearAllConfirm = () => {
+    clearAllOrders();
+    setShowClearAllDialog(false);
+    toast.success("All order history cleared.");
+  };
+
   if (sortedOrders.length === 0) {
     return (
       <div
@@ -503,6 +524,16 @@ function OrdersTab() {
           {sortedOrders.length} order{sortedOrders.length !== 1 ? "s" : ""}{" "}
           total
         </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowClearAllDialog(true)}
+          data-ocid="admin.orders.clear_all_button"
+          className="border-destructive/40 text-destructive hover:bg-destructive/10 font-body text-xs gap-1.5"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Clear All History
+        </Button>
       </div>
 
       <div className="bg-card border border-border rounded-sm overflow-hidden">
@@ -535,6 +566,7 @@ function OrdersTab() {
                 <TableHead className="font-body text-xs tracking-widest uppercase text-muted-foreground text-right">
                   Actions
                 </TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -667,6 +699,17 @@ function OrdersTab() {
                           <XCircle className="h-4 w-4" />
                         </button>
                       </TableCell>
+                      <TableCell>
+                        <button
+                          type="button"
+                          onClick={() => setDeletingOrder(order)}
+                          data-ocid={`admin.orders.delete_button.${index + 1}`}
+                          className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded"
+                          aria-label={`Delete order ${order.id} from history`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </TableCell>
                     </TableRow>
 
                     {/* Expanded details row */}
@@ -676,7 +719,7 @@ function OrdersTab() {
                         className="border-border bg-muted/5 hover:bg-muted/10"
                         data-ocid={`admin.orders.details_panel.${index + 1}`}
                       >
-                        <TableCell colSpan={9} className="py-0">
+                        <TableCell colSpan={10} className="py-0">
                           <div className="px-4 py-4 space-y-4">
                             {/* Order items table */}
                             <div>
@@ -930,6 +973,91 @@ function OrdersTab() {
               className="font-body font-semibold text-sm"
             >
               Confirm Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Order Dialog */}
+      <Dialog
+        open={deletingOrder !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingOrder(null);
+        }}
+      >
+        <DialogContent
+          className="bg-card border-border max-w-md"
+          data-ocid="admin.orders.delete.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display text-lg font-semibold text-foreground">
+              Delete Order
+            </DialogTitle>
+            <DialogDescription className="font-body text-muted-foreground text-sm">
+              Permanently remove order{" "}
+              <span className="text-foreground font-semibold">
+                {deletingOrder?.id}
+              </span>{" "}
+              from history? This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setDeletingOrder(null)}
+              data-ocid="admin.orders.delete.cancel_button"
+              className="border-border font-body text-sm"
+            >
+              Keep
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteConfirm}
+              data-ocid="admin.orders.delete.confirm_button"
+              className="font-body font-semibold text-sm"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear All History Dialog */}
+      <Dialog
+        open={showClearAllDialog}
+        onOpenChange={(open) => {
+          if (!open) setShowClearAllDialog(false);
+        }}
+      >
+        <DialogContent
+          className="bg-card border-border max-w-md"
+          data-ocid="admin.orders.clear_all.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="font-display text-lg font-semibold text-foreground">
+              Clear All Order History
+            </DialogTitle>
+            <DialogDescription className="font-body text-muted-foreground text-sm">
+              This will permanently delete all {sortedOrders.length} orders from
+              history. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowClearAllDialog(false)}
+              data-ocid="admin.orders.clear_all.cancel_button"
+              className="border-border font-body text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleClearAllConfirm}
+              data-ocid="admin.orders.clear_all.confirm_button"
+              className="font-body font-semibold text-sm"
+            >
+              Clear All
             </Button>
           </DialogFooter>
         </DialogContent>

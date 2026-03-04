@@ -50,6 +50,8 @@ interface OrdersContextValue {
   cancelOrder: (id: string, reason: string) => void;
   updateOrderStatus: (id: string, newStatus: OrderStatus) => void;
   requestReturn: (id: string, reason: string, description?: string) => void;
+  deleteOrder: (id: string) => void;
+  clearAllOrders: () => void;
 }
 
 const STORAGE_KEY = "lycoris_orders";
@@ -138,6 +140,14 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const deleteOrder = useCallback((id: string) => {
+    setOrders((prev) => prev.filter((o) => o.id !== id));
+  }, []);
+
+  const clearAllOrders = useCallback(() => {
+    setOrders([]);
+  }, []);
+
   return (
     <OrdersContext.Provider
       value={{
@@ -146,6 +156,8 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
         cancelOrder,
         updateOrderStatus,
         requestReturn,
+        deleteOrder,
+        clearAllOrders,
       }}
     >
       {children}
