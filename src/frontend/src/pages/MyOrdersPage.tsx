@@ -279,16 +279,26 @@ export function MyOrdersPage({ onBack }: MyOrdersPageProps) {
 
   const sortedOrders = [...orders].sort((a, b) => b.timestamp - a.timestamp);
 
-  const handleCancelConfirm = (reason: string) => {
+  const handleCancelConfirm = async (reason: string) => {
     if (!cancellingOrder) return;
-    cancelOrder(cancellingOrder.id, reason);
-    setCancellingOrder(null);
+    const orderId = cancellingOrder.id;
+    try {
+      await cancelOrder(orderId, reason);
+      setCancellingOrder(null);
+    } catch (err) {
+      console.error("[MyOrders] Failed to cancel order:", err);
+    }
   };
 
-  const handleReturnConfirm = (reason: string, description: string) => {
+  const handleReturnConfirm = async (reason: string, description: string) => {
     if (!returningOrder) return;
-    requestReturn(returningOrder.id, reason, description);
-    setReturningOrder(null);
+    const orderId = returningOrder.id;
+    try {
+      await requestReturn(orderId, reason, description);
+      setReturningOrder(null);
+    } catch (err) {
+      console.error("[MyOrders] Failed to request return:", err);
+    }
   };
 
   return (

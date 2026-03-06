@@ -7,6 +7,9 @@ import {
   useState,
 } from "react";
 
+// localStorage key
+const LS_ORDERS = "lycoris_orders";
+
 export interface OrderItem {
   productId: number;
   productName: string;
@@ -46,32 +49,17 @@ type NewOrderData = Omit<Order, "id" | "status">;
 
 interface OrdersContextValue {
   orders: Order[];
-  addOrder: (data: NewOrderData) => string;
-  cancelOrder: (id: string, reason: string) => void;
-  updateOrderStatus: (id: string, newStatus: OrderStatus) => void;
-  requestReturn: (id: string, reason: string, description?: string) => void;
-  deleteOrder: (id: string) => void;
-  clearAllOrders: () => void;
-}
-
-const STORAGE_KEY = "lycoris_orders";
-
-function loadOrders(): Order[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    return JSON.parse(raw) as Order[];
-  } catch {
-    return [];
-  }
-}
-
-function saveOrders(orders: Order[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(orders));
-  } catch {
-    // ignore
-  }
+  isLoading: boolean;
+  addOrder: (data: NewOrderData) => Promise<string>;
+  cancelOrder: (id: string, reason: string) => Promise<void>;
+  updateOrderStatus: (id: string, newStatus: OrderStatus) => Promise<void>;
+  requestReturn: (
+    id: string,
+    reason: string,
+    description?: string,
+  ) => Promise<void>;
+  deleteOrder: (id: string) => Promise<void>;
+  clearAllOrders: () => Promise<void>;
 }
 
 function generateOrderId(): string {
@@ -83,49 +71,81 @@ function generateOrderId(): string {
   return id;
 }
 
+function loadOrders(): Order[] {
+  try {
+    const raw = localStorage.getItem(LS_ORDERS);
+    return raw ? (JSON.parse(raw) as Order[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveOrders(orders: Order[]): void {
+  localStorage.setItem(LS_ORDERS, JSON.stringify(orders));
+}
+
 const OrdersContext = createContext<OrdersContextValue | null>(null);
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>(loadOrders);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
+  // Load orders from localStorage on mount
   useEffect(() => {
-    saveOrders(orders);
-  }, [orders]);
-
-  const addOrder = useCallback((data: NewOrderData): string => {
-    const id = generateOrderId();
-    const newOrder: Order = { ...data, id, status: "Pending" };
-    setOrders((prev) => [newOrder, ...prev]);
-    return id;
+    const stored = loadOrders();
+    setOrders(stored);
+    setIsLoading(false);
   }, []);
 
-  const cancelOrder = useCallback((id: string, reason: string) => {
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== id) return o;
-        if (o.status !== "Pending" && o.status !== "Confirmed") return o;
-        return {
-          ...o,
-          status: "Cancelled" as OrderStatus,
-          cancellationReason: reason,
-        };
-      }),
-    );
+  const addOrder = useCallback(async (data: NewOrderData): Promise<string> => {
+    const orderId = generateOrderId();
+    const newOrder: Order = { ...data, id: orderId, status: "Pending" };
+
+    setOrders((prev) => {
+      const updated = [newOrder, ...prev];
+      saveOrders(updated);
+      return updated;
+    });
+
+    return orderId;
   }, []);
+
+  const cancelOrder = useCallback(
+    async (id: string, reason: string): Promise<void> => {
+      setOrders((prev) => {
+        const updated = prev.map((o) => {
+          if (o.id !== id) return o;
+          if (o.status !== "Pending" && o.status !== "Confirmed") return o;
+          return {
+            ...o,
+            status: "Cancelled" as OrderStatus,
+            cancellationReason: reason,
+          };
+        });
+        saveOrders(updated);
+        return updated;
+      });
+    },
+    [],
+  );
 
   const updateOrderStatus = useCallback(
-    (id: string, newStatus: OrderStatus) => {
-      setOrders((prev) =>
-        prev.map((o) => (o.id === id ? { ...o, status: newStatus } : o)),
-      );
+    async (id: string, newStatus: OrderStatus): Promise<void> => {
+      setOrders((prev) => {
+        const updated = prev.map((o) =>
+          o.id === id ? { ...o, status: newStatus } : o,
+        );
+        saveOrders(updated);
+        return updated;
+      });
     },
     [],
   );
 
   const requestReturn = useCallback(
-    (id: string, reason: string, description?: string) => {
-      setOrders((prev) =>
-        prev.map((o) => {
+    async (id: string, reason: string, description?: string): Promise<void> => {
+      setOrders((prev) => {
+        const updated = prev.map((o) => {
           if (o.id !== id) return o;
           if (o.status !== "Delivered") return o;
           return {
@@ -134,17 +154,24 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             returnReason: reason,
             returnDescription: description,
           };
-        }),
-      );
+        });
+        saveOrders(updated);
+        return updated;
+      });
     },
     [],
   );
 
-  const deleteOrder = useCallback((id: string) => {
-    setOrders((prev) => prev.filter((o) => o.id !== id));
+  const deleteOrder = useCallback(async (id: string): Promise<void> => {
+    setOrders((prev) => {
+      const updated = prev.filter((o) => o.id !== id);
+      saveOrders(updated);
+      return updated;
+    });
   }, []);
 
-  const clearAllOrders = useCallback(() => {
+  const clearAllOrders = useCallback(async (): Promise<void> => {
+    saveOrders([]);
     setOrders([]);
   }, []);
 
@@ -152,6 +179,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     <OrdersContext.Provider
       value={{
         orders,
+        isLoading,
         addOrder,
         cancelOrder,
         updateOrderStatus,

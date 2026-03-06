@@ -145,32 +145,37 @@ export function CheckoutPage({
 
   const handlePlaceOrder = async () => {
     setIsPlacingOrder(true);
-    await new Promise((r) => setTimeout(r, 900));
+    try {
+      await new Promise((r) => setTimeout(r, 900));
 
-    // Build order data
-    const orderId = addOrder({
-      customerName: address.fullName,
-      customerMobile: address.mobile,
-      deliveryAddress: `${address.address1}${address.address2 ? `, ${address.address2}` : ""}`,
-      city: address.city,
-      state: address.state,
-      pincode: address.pincode,
-      items: cartItems.map((item) => ({
-        productId: item.product.id,
-        productName: item.product.name,
-        size: item.size,
-        quantity: item.quantity,
-        priceEach: item.effectivePrice,
-      })),
-      totalPrice: orderTotal,
-      paymentMethod,
-      timestamp: Date.now(),
-    });
+      // Build order data
+      const orderId = await addOrder({
+        customerName: address.fullName,
+        customerMobile: address.mobile,
+        deliveryAddress: `${address.address1}${address.address2 ? `, ${address.address2}` : ""}`,
+        city: address.city,
+        state: address.state,
+        pincode: address.pincode,
+        items: cartItems.map((item) => ({
+          productId: item.product.id,
+          productName: item.product.name,
+          size: item.size,
+          quantity: item.quantity,
+          priceEach: item.effectivePrice,
+        })),
+        totalPrice: orderTotal,
+        paymentMethod,
+        timestamp: Date.now(),
+      });
 
-    clearCart();
-    setIsPlacingOrder(false);
-    setPlacedOrderId(orderId);
-    setStep(4);
+      clearCart();
+      setPlacedOrderId(orderId);
+      setStep(4);
+    } catch (err) {
+      console.error("[Checkout] Failed to place order:", err);
+    } finally {
+      setIsPlacingOrder(false);
+    }
   };
 
   const updateField = (field: keyof AddressForm, value: string) => {

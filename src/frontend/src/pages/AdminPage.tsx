@@ -41,6 +41,7 @@ import {
   ChevronRight,
   ImagePlus,
   Layout,
+  Loader2,
   Lock,
   MapPin,
   Package,
@@ -56,7 +57,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 const ADMIN_PASSWORD = "lycoris-admin";
@@ -475,25 +476,42 @@ function OrdersTab() {
     "Returned",
   ];
 
-  const handleCancelConfirm = () => {
+  const handleCancelConfirm = async () => {
     if (!cancellingOrder) return;
-    cancelOrder(cancellingOrder.id, cancelReason);
-    setCancellingOrder(null);
-    setCancelReason("");
-    toast.success(`Order ${cancellingOrder.id} has been cancelled.`);
+    const orderId = cancellingOrder.id;
+    try {
+      await cancelOrder(orderId, cancelReason);
+      setCancellingOrder(null);
+      setCancelReason("");
+      toast.success(`Order ${orderId} has been cancelled.`);
+    } catch (err) {
+      console.error("[Admin] Failed to cancel order:", err);
+      toast.error("Failed to cancel order. Please try again.");
+    }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!deletingOrder) return;
-    deleteOrder(deletingOrder.id);
-    setDeletingOrder(null);
-    toast.success(`Order ${deletingOrder.id} deleted from history.`);
+    const orderId = deletingOrder.id;
+    try {
+      await deleteOrder(orderId);
+      setDeletingOrder(null);
+      toast.success(`Order ${orderId} deleted from history.`);
+    } catch (err) {
+      console.error("[Admin] Failed to delete order:", err);
+      toast.error("Failed to delete order. Please try again.");
+    }
   };
 
-  const handleClearAllConfirm = () => {
-    clearAllOrders();
-    setShowClearAllDialog(false);
-    toast.success("All order history cleared.");
+  const handleClearAllConfirm = async () => {
+    try {
+      await clearAllOrders();
+      setShowClearAllDialog(false);
+      toast.success("All order history cleared.");
+    } catch (err) {
+      console.error("[Admin] Failed to clear orders:", err);
+      toast.error("Failed to clear orders. Please try again.");
+    }
   };
 
   if (sortedOrders.length === 0) {
@@ -646,9 +664,18 @@ function OrdersTab() {
                       <TableCell>
                         <Select
                           value={order.status}
-                          onValueChange={(val) =>
-                            updateOrderStatus(order.id, val as OrderStatus)
-                          }
+                          onValueChange={(val) => {
+                            updateOrderStatus(
+                              order.id,
+                              val as OrderStatus,
+                            ).catch((err) => {
+                              console.error(
+                                "[Admin] Failed to update order status:",
+                                err,
+                              );
+                              toast.error("Failed to update order status.");
+                            });
+                          }}
                           disabled={order.status === "Cancelled"}
                         >
                           <SelectTrigger
@@ -1071,12 +1098,26 @@ function StorefrontTab() {
   const { heroConfig, updateHeroConfig } = useHeroConfig();
 
   const [localConfig, setLocalConfig] = useState(heroConfig);
+  const [isSavingStorefront, setIsSavingStorefront] = useState(false);
   const defaultLogoSrc =
     "/assets/uploads/WhatsApp-Image-2026-02-28-at-7.14.59-PM-1.JPG";
 
-  const handleSave = () => {
-    updateHeroConfig(localConfig);
-    toast.success("Storefront settings saved!");
+  // Sync local state when heroConfig loads from backend
+  useEffect(() => {
+    setLocalConfig(heroConfig);
+  }, [heroConfig]);
+
+  const handleSave = async () => {
+    try {
+      setIsSavingStorefront(true);
+      await updateHeroConfig(localConfig);
+      toast.success("Storefront settings saved!");
+    } catch (err) {
+      console.error("[Storefront] Failed to save:", err);
+      toast.error("Failed to save storefront settings. Please try again.");
+    } finally {
+      setIsSavingStorefront(false);
+    }
   };
 
   const handleResetLogo = () => {
@@ -1268,10 +1309,18 @@ function StorefrontTab() {
 
         <Button
           onClick={handleSave}
+          disabled={isSavingStorefront}
           data-ocid="admin.storefront.save_button"
-          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11"
+          className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 disabled:opacity-60"
         >
-          Save Storefront Settings
+          {isSavingStorefront ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving...
+            </span>
+          ) : (
+            "Save Storefront Settings"
+          )}
         </Button>
       </div>
 
@@ -1373,6 +1422,9 @@ export function AdminPage() {
   const { products, addProduct, updateProduct, deleteProduct } = useProducts();
   const { getReviews } = useReviews();
 
+  const [isAddingProduct, setIsAddingProduct] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
   // Add Product form state
   const [form, setForm] = useState({
     name: "",
@@ -1398,7 +1450,7 @@ export function AdminPage() {
     }
   };
 
-  const handleAddProduct = (e: React.FormEvent) => {
+  const handleAddProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     const validRows = form.sizeRows.filter(
       (r) => r.size.trim() && r.price.trim(),
@@ -1420,8 +1472,7 @@ export function AdminPage() {
       );
     }
 
-    const newProduct: AdminProduct = {
-      id: Date.now(),
+    const productData: Omit<Product, "id"> = {
       name: form.name,
       description: form.description,
       price: Math.round(Number.parseInt(validRows[0].price, 10)),
@@ -1431,28 +1482,40 @@ export function AdminPage() {
       imageUrl: mainImage,
       images: form.images.length > 0 ? form.images : [mainImage],
       inStock: true,
-      isNew: true,
       stockLimit:
         form.stockLimit.trim() !== ""
           ? Math.max(0, Number.parseInt(form.stockLimit, 10))
           : undefined,
     };
 
-    addProduct(newProduct);
-    setForm({
-      name: "",
-      description: "",
-      category: "",
-      sizeRows: [newSizePriceRow()],
-      images: [],
-      stockLimit: "",
-    });
-    toast.success(`"${newProduct.name}" added to catalog.`);
+    try {
+      setIsAddingProduct(true);
+      const newProduct = await addProduct(productData);
+      setForm({
+        name: "",
+        description: "",
+        category: "",
+        sizeRows: [newSizePriceRow()],
+        images: [],
+        stockLimit: "",
+      });
+      toast.success(`"${newProduct.name}" added to catalog.`);
+    } catch (err) {
+      console.error("[Admin] Failed to add product:", err);
+      toast.error("Failed to add product. Please try again.");
+    } finally {
+      setIsAddingProduct(false);
+    }
   };
 
-  const handleDeleteProduct = (product: AdminProduct) => {
-    deleteProduct(product.id);
-    toast.success(`"${product.name}" deleted.`);
+  const handleDeleteProduct = async (product: AdminProduct) => {
+    try {
+      await deleteProduct(product.id);
+      toast.success(`"${product.name}" deleted.`);
+    } catch (err) {
+      console.error("[Admin] Failed to delete product:", err);
+      toast.error("Failed to delete product. Please try again.");
+    }
   };
 
   const openEditDialog = (product: AdminProduct) => {
@@ -1488,7 +1551,7 @@ export function AdminPage() {
     });
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingProduct) return;
     const validRows = editForm.sizeRows.filter(
       (r) => r.size.trim() && r.price.trim(),
@@ -1527,9 +1590,17 @@ export function AdminPage() {
           : undefined,
     };
 
-    updateProduct(updated);
-    setEditingProduct(null);
-    toast.success(`"${updated.name}" updated.`);
+    try {
+      setIsSavingEdit(true);
+      await updateProduct(updated);
+      setEditingProduct(null);
+      toast.success(`"${updated.name}" updated.`);
+    } catch (err) {
+      console.error("[Admin] Failed to update product:", err);
+      toast.error("Failed to update product. Please try again.");
+    } finally {
+      setIsSavingEdit(false);
+    }
   };
 
   if (!isAuthenticated) {
@@ -1780,11 +1851,21 @@ export function AdminPage() {
 
                     <Button
                       type="submit"
+                      disabled={isAddingProduct}
                       data-ocid="admin.add_product_button"
-                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 gap-2"
+                      className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold tracking-wider uppercase rounded-none h-11 gap-2 disabled:opacity-60"
                     >
-                      <Plus className="h-4 w-4" />
-                      Add Product
+                      {isAddingProduct ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Adding...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4" />
+                          Add Product
+                        </>
+                      )}
                     </Button>
                   </form>
                 </div>
@@ -2137,10 +2218,18 @@ export function AdminPage() {
             </Button>
             <Button
               onClick={handleSaveEdit}
+              disabled={isSavingEdit}
               data-ocid="admin.edit_product.save_button"
-              className="bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 font-body font-semibold disabled:opacity-60"
             >
-              Save Changes
+              {isSavingEdit ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Changes"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

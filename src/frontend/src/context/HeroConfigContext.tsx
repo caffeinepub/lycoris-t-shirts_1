@@ -7,6 +7,9 @@ import {
   useState,
 } from "react";
 
+// localStorage key
+const LS_STOREFRONT = "lycoris_storefront";
+
 export interface HeroConfig {
   heroBadgeText: string;
   heroTitle: string;
@@ -26,48 +29,60 @@ const DEFAULT_CONFIG: HeroConfig = {
   logoImage: "",
 };
 
-const STORAGE_KEY = "lycoris_hero_config";
+interface HeroConfigContextValue {
+  heroConfig: HeroConfig;
+  isLoading: boolean;
+  updateHeroConfig: (partial: Partial<HeroConfig>) => Promise<void>;
+  resetToDefault: () => Promise<void>;
+}
 
 function loadConfig(): HeroConfig {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(LS_STOREFRONT);
     if (!raw) return DEFAULT_CONFIG;
-    return { ...DEFAULT_CONFIG, ...(JSON.parse(raw) as Partial<HeroConfig>) };
+    const parsed = JSON.parse(raw) as Partial<HeroConfig>;
+    return { ...DEFAULT_CONFIG, ...parsed };
   } catch {
     return DEFAULT_CONFIG;
   }
 }
 
-interface HeroConfigContextValue {
-  heroConfig: HeroConfig;
-  updateHeroConfig: (partial: Partial<HeroConfig>) => void;
-  resetToDefault: () => void;
+function saveConfig(config: HeroConfig): void {
+  localStorage.setItem(LS_STOREFRONT, JSON.stringify(config));
 }
 
 const HeroConfigContext = createContext<HeroConfigContextValue | null>(null);
 
 export function HeroConfigProvider({ children }: { children: ReactNode }) {
-  const [heroConfig, setHeroConfig] = useState<HeroConfig>(loadConfig);
+  const [heroConfig, setHeroConfig] = useState<HeroConfig>(DEFAULT_CONFIG);
+  const [isLoading, setIsLoading] = useState(true);
 
+  // Load from localStorage on mount
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(heroConfig));
-    } catch {
-      // ignore
-    }
-  }, [heroConfig]);
-
-  const updateHeroConfig = useCallback((partial: Partial<HeroConfig>) => {
-    setHeroConfig((prev) => ({ ...prev, ...partial }));
+    const stored = loadConfig();
+    setHeroConfig(stored);
+    setIsLoading(false);
   }, []);
 
-  const resetToDefault = useCallback(() => {
+  const updateHeroConfig = useCallback(
+    async (partial: Partial<HeroConfig>): Promise<void> => {
+      setHeroConfig((prev) => {
+        const updated = { ...prev, ...partial };
+        saveConfig(updated);
+        return updated;
+      });
+    },
+    [],
+  );
+
+  const resetToDefault = useCallback(async (): Promise<void> => {
+    saveConfig(DEFAULT_CONFIG);
     setHeroConfig(DEFAULT_CONFIG);
   }, []);
 
   return (
     <HeroConfigContext.Provider
-      value={{ heroConfig, updateHeroConfig, resetToDefault }}
+      value={{ heroConfig, isLoading, updateHeroConfig, resetToDefault }}
     >
       {children}
     </HeroConfigContext.Provider>
