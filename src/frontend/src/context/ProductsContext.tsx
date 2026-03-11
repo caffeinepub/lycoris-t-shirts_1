@@ -1,36 +1,17 @@
-/**
- * ProductsContext
- *
- * Data strategy:
- * - Single localStorage key `lycoris_products_v2` stores the FULL product list as JSON.
- * - On mount, static PRODUCTS are shown immediately (instant, no flicker).
- * - When the backend actor becomes available, getAllProducts() is called once.
- *   - If localStorage already has a product list, we keep it (user has customized products).
- *   - If localStorage is empty (first ever visit), we seed from backend products.
- * - addProduct / updateProduct / deleteProduct: update localStorage + React state.
- *
- * NOTE: Full cross-device sync (admin changes on Device A appear on Device B)
- * requires the backend to be rebuilt with open (unauthenticated) mutations.
- * The current backend blocks addProduct/updateProduct/deleteProduct with auth checks.
- * Until that's fixed, all mutations are stored in this device's localStorage only.
- */
-
 import type { Product } from "@/data/products";
-import { PRODUCTS } from "@/data/products";
 import { useActor } from "@/hooks/useActor";
+import { useImageUpload } from "@/hooks/useImageUpload";
+import type { BackendProduct } from "@/types/backend-types";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
 } from "react";
 
-// Single localStorage key — stores the full product list
-const LS_KEY = "lycoris_products_v2";
+const DEFAULT_IMAGE = "/assets/generated/tshirt-black.dim_600x600.jpg";
 
-// Default image fallback map by seed product id
 const DEFAULT_IMAGE_MAP: Record<number, string> = {
   1: "/assets/generated/tshirt-black.dim_600x600.jpg",
   2: "/assets/generated/tshirt-lycoris.dim_600x600.jpg",
@@ -39,87 +20,50 @@ const DEFAULT_IMAGE_MAP: Record<number, string> = {
 };
 
 function getDefaultImage(id: number): string {
-  return (
-    DEFAULT_IMAGE_MAP[id] ?? "/assets/generated/tshirt-black.dim_600x600.jpg"
-  );
+  return DEFAULT_IMAGE_MAP[id] ?? DEFAULT_IMAGE;
 }
 
-// Old backend Product schema (what getAllProducts() actually returns)
-interface OldBackendProduct {
-  id: bigint;
-  name: string;
-  description: string;
-  price: bigint;
-  sizes: string[];
-  imageUrl: string;
-  category: string;
-  inStock: boolean;
+function safeImageUrl(url: string): string {
+  if (!url || url.startsWith("data:")) return DEFAULT_IMAGE;
+  return url;
 }
 
-// Old backend interface — only getAllProducts is safe to call (mutations are auth-blocked)
-interface OldBackendInterface {
-  getAllProducts: () => Promise<OldBackendProduct[]>;
+function safeImages(uploaded: string[], fallback: string): string[] {
+  const safe = uploaded.filter((u) => !u.startsWith("data:"));
+  return safe.length > 0 ? safe : [fallback];
 }
 
-// ─── localStorage helpers ──────────────────────────────────────────────────
-
-function loadLocalProducts(): Product[] | null {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? (JSON.parse(raw) as Product[]) : null;
-  } catch {
-    return null;
-  }
-}
-
-function saveLocalProducts(products: Product[]): void {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(products));
-  } catch {
-    // Storage quota exceeded or private browsing restriction
-    console.warn("[ProductsContext] Could not save products to localStorage");
-  }
-}
-
-// ─── Backend → frontend type mapping ─────────────────────────────────────
-
-function mapBackendProduct(bp: OldBackendProduct): Product {
+function mapBackendProduct(bp: BackendProduct): Product {
   const id = Number(bp.id);
   const price = Number(bp.price);
-  const imageUrl = bp.imageUrl || getDefaultImage(id);
-
-  // Build sizePrices: same price for all sizes
-  const sizePrices: Record<string, number> = {};
-  for (const s of bp.sizes) {
-    sizePrices[s] = price;
+  const imageUrl =
+    bp.imageUrl && bp.imageUrl !== "" ? bp.imageUrl : getDefaultImage(id);
+  const images = bp.images && bp.images.length > 0 ? bp.images : undefined;
+  let sizePrices: Record<string, number> | undefined;
+  try {
+    if (bp.sizePricesJson && bp.sizePricesJson !== "{}") {
+      const parsed = JSON.parse(bp.sizePricesJson) as Record<string, number>;
+      if (Object.keys(parsed).length > 0) sizePrices = parsed;
+    }
+  } catch {
+    /* ignore */
   }
-
+  const stockLimit =
+    bp.stockLimit.length > 0 ? Number(bp.stockLimit[0]) : undefined;
   return {
     id,
     name: bp.name,
     description: bp.description,
-    category: bp.category,
-    sizes: bp.sizes,
-    sizePrices: Object.keys(sizePrices).length > 0 ? sizePrices : undefined,
     price,
+    sizes: bp.sizes,
+    sizePrices,
     imageUrl,
-    images: bp.imageUrl ? [bp.imageUrl] : undefined,
+    images,
+    category: bp.category,
     inStock: bp.inStock,
-    stockLimit: undefined,
+    stockLimit,
   };
 }
-
-// ─── ID generation for locally-added products ─────────────────────────────
-
-/** New product IDs always start at 1000 to avoid collisions with backend seed IDs */
-function nextLocalId(existingProducts: Product[]): number {
-  const localMax = existingProducts
-    .filter((p) => p.id >= 1000)
-    .reduce((max, p) => Math.max(max, p.id), 999);
-  return localMax + 1;
-}
-
-// ─── Context definition ────────────────────────────────────────────────────
 
 interface ProductsContextValue {
   products: Product[];
@@ -132,100 +76,161 @@ interface ProductsContextValue {
 
 const ProductsContext = createContext<ProductsContextValue | null>(null);
 
-// ─── Provider ─────────────────────────────────────────────────────────────
-
 export function ProductsProvider({ children }: { children: React.ReactNode }) {
   const { actor, isFetching } = useActor();
-  const [products, setProducts] = useState<Product[]>(() => {
-    // Initialise synchronously from localStorage so the UI never flickers
-    return loadLocalProducts() ?? PRODUCTS;
-  });
-  const [isLoading, setIsLoading] = useState(false);
+  const { uploadImages } = useImageUpload();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Guard: only seed from backend once
-  const backendSeeded = useRef(false);
+  const fetchProducts = useCallback(async () => {
+    if (!actor) return;
+    try {
+      setIsLoading(true);
+      const backendProducts = await (
+        actor as unknown as { getAllProducts: () => Promise<BackendProduct[]> }
+      ).getAllProducts();
+      const mapped = backendProducts.map(mapBackendProduct);
+      setProducts(mapped);
+    } catch (err) {
+      console.warn("[ProductsContext] Backend fetch failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor]);
 
   useEffect(() => {
-    if (!actor || isFetching || backendSeeded.current) return;
-    backendSeeded.current = true;
-
-    // Only seed from backend when localStorage is empty (first ever visit)
-    const stored = loadLocalProducts();
-    if (stored !== null) {
-      // User already has a product list — do not overwrite with backend data
-      return;
-    }
-
-    // First-ever visit: fetch backend seed products and store them
-    const oldActor = actor as unknown as OldBackendInterface;
-    oldActor
-      .getAllProducts()
-      .then((backendProducts) => {
-        const mapped = backendProducts.map(mapBackendProduct);
-        const seeded = mapped.length > 0 ? mapped : PRODUCTS;
-        saveLocalProducts(seeded);
-        setProducts(seeded);
-      })
-      .catch((err) => {
-        console.warn(
-          "[ProductsContext] Backend fetch failed, using static seed:",
-          err,
-        );
-        // Seed localStorage with static products so next load is fast
-        saveLocalProducts(PRODUCTS);
-        setProducts(PRODUCTS);
-      });
-  }, [actor, isFetching]);
-
-  // ── Mutations ────────────────────────────────────────────────────────────
+    if (!actor || isFetching) return;
+    fetchProducts();
+  }, [actor, isFetching, fetchProducts]);
 
   const addProduct = useCallback(
     async (productData: Omit<Product, "id">): Promise<Product> => {
-      const id = nextLocalId(products);
-      const imageUrl =
-        productData.images?.[0] || productData.imageUrl || getDefaultImage(id);
+      if (!actor) throw new Error("Backend not ready");
 
-      const newProduct: Product = { ...productData, id, imageUrl };
+      // Upload any base64 images to blob storage first
+      const rawImages = productData.images ?? [];
+      const uploadedImages = await uploadImages(rawImages);
+      const imageUrl = safeImageUrl(
+        uploadedImages[0] || productData.imageUrl || "",
+      );
+      const finalImages = safeImages(uploadedImages, imageUrl);
 
-      setProducts((prev) => {
-        const updated = [newProduct, ...prev];
-        saveLocalProducts(updated);
-        return updated;
-      });
+      const sizePricesJson = productData.sizePrices
+        ? JSON.stringify(productData.sizePrices)
+        : "{}";
+      const price = BigInt(Math.round(productData.price));
+      const stockLimit: [bigint] | [] =
+        productData.stockLimit != null ? [BigInt(productData.stockLimit)] : [];
 
+      const backendActor = actor as unknown as {
+        addProduct: (
+          name: string,
+          desc: string,
+          price: bigint,
+          sizes: string[],
+          sizePricesJson: string,
+          imageUrl: string,
+          images: string[],
+          category: string,
+          inStock: boolean,
+          stockLimit: [bigint] | [],
+        ) => Promise<bigint>;
+        getAllProducts: () => Promise<BackendProduct[]>;
+      };
+
+      const newId = await backendActor.addProduct(
+        productData.name,
+        productData.description,
+        price,
+        productData.sizes,
+        sizePricesJson,
+        imageUrl,
+        finalImages,
+        productData.category,
+        productData.inStock,
+        stockLimit,
+      );
+
+      const newProduct: Product = {
+        ...productData,
+        id: Number(newId),
+        imageUrl,
+        images: finalImages,
+      };
+      await fetchProducts();
       return newProduct;
     },
-    [products],
+    [actor, fetchProducts, uploadImages],
   );
 
-  const updateProduct = useCallback(async (product: Product): Promise<void> => {
-    const imageUrl =
-      product.images?.[0] || product.imageUrl || getDefaultImage(product.id);
-    const updated = { ...product, imageUrl };
+  const updateProduct = useCallback(
+    async (product: Product): Promise<void> => {
+      if (!actor) throw new Error("Backend not ready");
 
-    setProducts((prev) => {
-      const next = prev.map((p) => (p.id === updated.id ? updated : p));
-      saveLocalProducts(next);
-      return next;
-    });
-  }, []);
+      // Upload any base64 images to blob storage first
+      const rawImages = product.images ?? [];
+      const uploadedImages = await uploadImages(rawImages);
+      const imageUrl = safeImageUrl(
+        uploadedImages[0] || product.imageUrl || "",
+      );
+      const finalImages = safeImages(uploadedImages, imageUrl);
 
-  const deleteProduct = useCallback(async (id: number): Promise<void> => {
-    setProducts((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      saveLocalProducts(next);
-      return next;
-    });
-  }, []);
+      const sizePricesJson = product.sizePrices
+        ? JSON.stringify(product.sizePrices)
+        : "{}";
+      const price = BigInt(Math.round(product.price));
+      const stockLimit: [bigint] | [] =
+        product.stockLimit != null ? [BigInt(product.stockLimit)] : [];
+
+      const backendActor = actor as unknown as {
+        updateProduct: (
+          id: bigint,
+          name: string,
+          desc: string,
+          price: bigint,
+          sizes: string[],
+          sizePricesJson: string,
+          imageUrl: string,
+          images: string[],
+          category: string,
+          inStock: boolean,
+          stockLimit: [bigint] | [],
+        ) => Promise<boolean>;
+      };
+
+      await backendActor.updateProduct(
+        BigInt(product.id),
+        product.name,
+        product.description,
+        price,
+        product.sizes,
+        sizePricesJson,
+        imageUrl,
+        finalImages,
+        product.category,
+        product.inStock,
+        stockLimit,
+      );
+      await fetchProducts();
+    },
+    [actor, fetchProducts, uploadImages],
+  );
+
+  const deleteProduct = useCallback(
+    async (id: number): Promise<void> => {
+      if (!actor) throw new Error("Backend not ready");
+      const backendActor = actor as unknown as {
+        deleteProduct: (id: bigint) => Promise<boolean>;
+      };
+      await backendActor.deleteProduct(BigInt(id));
+      await fetchProducts();
+    },
+    [actor, fetchProducts],
+  );
 
   const refreshProducts = useCallback(async (): Promise<void> => {
-    setIsLoading(true);
-    const stored = loadLocalProducts();
-    if (stored !== null) {
-      setProducts(stored);
-    }
-    setIsLoading(false);
-  }, []);
+    await fetchProducts();
+  }, [fetchProducts]);
 
   return (
     <ProductsContext.Provider
@@ -242,8 +247,6 @@ export function ProductsProvider({ children }: { children: React.ReactNode }) {
     </ProductsContext.Provider>
   );
 }
-
-// ─── Hook ─────────────────────────────────────────────────────────────────
 
 export function useProducts() {
   const ctx = useContext(ProductsContext);

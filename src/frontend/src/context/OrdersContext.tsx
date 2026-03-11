@@ -1,3 +1,5 @@
+import { useActor } from "@/hooks/useActor";
+import type { BackendOrder, BackendOrderItem } from "@/types/backend-types";
 import {
   type ReactNode,
   createContext,
@@ -6,9 +8,6 @@ import {
   useEffect,
   useState,
 } from "react";
-
-// localStorage key
-const LS_ORDERS = "lycoris_orders";
 
 export interface OrderItem {
   productId: number;
@@ -71,109 +70,162 @@ function generateOrderId(): string {
   return id;
 }
 
-function loadOrders(): Order[] {
-  try {
-    const raw = localStorage.getItem(LS_ORDERS);
-    return raw ? (JSON.parse(raw) as Order[]) : [];
-  } catch {
-    return [];
-  }
+function mapBackendOrder(o: BackendOrder): Order {
+  return {
+    id: o.id,
+    customerName: o.customerName,
+    customerMobile: o.customerMobile,
+    deliveryAddress: o.deliveryAddress,
+    city: o.city,
+    state: o.state,
+    pincode: o.pincode,
+    items: o.items.map((item) => ({
+      productId: Number(item.productId),
+      productName: item.productName,
+      size: item.size,
+      quantity: Number(item.quantity),
+      priceEach: Number(item.priceEach),
+    })),
+    totalPrice: Number(o.totalPrice),
+    paymentMethod: o.paymentMethod as "cod" | "online",
+    status: o.status as OrderStatus,
+    timestamp: Number(o.timestamp),
+    cancellationReason: o.cancellationReason || undefined,
+    returnReason: o.returnReason || undefined,
+    returnDescription: o.returnDescription || undefined,
+  };
 }
 
-function saveOrders(orders: Order[]): void {
-  localStorage.setItem(LS_ORDERS, JSON.stringify(orders));
-}
+type BackendActor = {
+  placeOrder: (
+    id: string,
+    customerName: string,
+    customerMobile: string,
+    deliveryAddress: string,
+    city: string,
+    state: string,
+    pincode: string,
+    items: BackendOrderItem[],
+    totalPrice: bigint,
+    paymentMethod: string,
+    timestamp: bigint,
+  ) => Promise<string>;
+  getAllOrders: () => Promise<BackendOrder[]>;
+  updateOrderStatus: (id: string, newStatus: string) => Promise<boolean>;
+  cancelOrder: (id: string, reason: string) => Promise<boolean>;
+  requestReturn: (
+    id: string,
+    reason: string,
+    description: string,
+  ) => Promise<boolean>;
+  deleteOrder: (id: string) => Promise<boolean>;
+  clearAllOrders: () => Promise<void>;
+};
 
 const OrdersContext = createContext<OrdersContextValue | null>(null);
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
+  const { actor, isFetching } = useActor();
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load orders from localStorage on mount
+  const fetchOrders = useCallback(async () => {
+    if (!actor) return;
+    try {
+      const backendActor = actor as unknown as BackendActor;
+      const raw = await backendActor.getAllOrders();
+      const mapped = raw.map(mapBackendOrder);
+      mapped.sort((a, b) => b.timestamp - a.timestamp);
+      setOrders(mapped);
+    } catch (err) {
+      console.warn("[OrdersContext] fetch failed:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [actor]);
+
   useEffect(() => {
-    const stored = loadOrders();
-    setOrders(stored);
-    setIsLoading(false);
-  }, []);
+    if (!actor || isFetching) return;
+    fetchOrders();
+  }, [actor, isFetching, fetchOrders]);
 
-  const addOrder = useCallback(async (data: NewOrderData): Promise<string> => {
-    const orderId = generateOrderId();
-    const newOrder: Order = { ...data, id: orderId, status: "Pending" };
-
-    setOrders((prev) => {
-      const updated = [newOrder, ...prev];
-      saveOrders(updated);
-      return updated;
-    });
-
-    return orderId;
-  }, []);
+  const addOrder = useCallback(
+    async (data: NewOrderData): Promise<string> => {
+      if (!actor) throw new Error("Backend not ready");
+      const orderId = generateOrderId();
+      const backendActor = actor as unknown as BackendActor;
+      const backendItems: BackendOrderItem[] = data.items.map((item) => ({
+        productId: BigInt(item.productId),
+        productName: item.productName,
+        size: item.size,
+        quantity: BigInt(item.quantity),
+        priceEach: BigInt(Math.round(item.priceEach)),
+      }));
+      await backendActor.placeOrder(
+        orderId,
+        data.customerName,
+        data.customerMobile,
+        data.deliveryAddress,
+        data.city,
+        data.state,
+        data.pincode,
+        backendItems,
+        BigInt(Math.round(data.totalPrice)),
+        data.paymentMethod,
+        BigInt(data.timestamp),
+      );
+      await fetchOrders();
+      return orderId;
+    },
+    [actor, fetchOrders],
+  );
 
   const cancelOrder = useCallback(
     async (id: string, reason: string): Promise<void> => {
-      setOrders((prev) => {
-        const updated = prev.map((o) => {
-          if (o.id !== id) return o;
-          if (o.status !== "Pending" && o.status !== "Confirmed") return o;
-          return {
-            ...o,
-            status: "Cancelled" as OrderStatus,
-            cancellationReason: reason,
-          };
-        });
-        saveOrders(updated);
-        return updated;
-      });
+      if (!actor) return;
+      const backendActor = actor as unknown as BackendActor;
+      await backendActor.cancelOrder(id, reason);
+      await fetchOrders();
     },
-    [],
+    [actor, fetchOrders],
   );
 
   const updateOrderStatus = useCallback(
     async (id: string, newStatus: OrderStatus): Promise<void> => {
-      setOrders((prev) => {
-        const updated = prev.map((o) =>
-          o.id === id ? { ...o, status: newStatus } : o,
-        );
-        saveOrders(updated);
-        return updated;
-      });
+      if (!actor) return;
+      const backendActor = actor as unknown as BackendActor;
+      await backendActor.updateOrderStatus(id, newStatus);
+      await fetchOrders();
     },
-    [],
+    [actor, fetchOrders],
   );
 
   const requestReturn = useCallback(
     async (id: string, reason: string, description?: string): Promise<void> => {
-      setOrders((prev) => {
-        const updated = prev.map((o) => {
-          if (o.id !== id) return o;
-          if (o.status !== "Delivered") return o;
-          return {
-            ...o,
-            status: "Return Requested" as OrderStatus,
-            returnReason: reason,
-            returnDescription: description,
-          };
-        });
-        saveOrders(updated);
-        return updated;
-      });
+      if (!actor) return;
+      const backendActor = actor as unknown as BackendActor;
+      await backendActor.requestReturn(id, reason, description ?? "");
+      await fetchOrders();
     },
-    [],
+    [actor, fetchOrders],
   );
 
-  const deleteOrder = useCallback(async (id: string): Promise<void> => {
-    setOrders((prev) => {
-      const updated = prev.filter((o) => o.id !== id);
-      saveOrders(updated);
-      return updated;
-    });
-  }, []);
+  const deleteOrder = useCallback(
+    async (id: string): Promise<void> => {
+      if (!actor) return;
+      const backendActor = actor as unknown as BackendActor;
+      await backendActor.deleteOrder(id);
+      await fetchOrders();
+    },
+    [actor, fetchOrders],
+  );
 
   const clearAllOrders = useCallback(async (): Promise<void> => {
-    saveOrders([]);
+    if (!actor) return;
+    const backendActor = actor as unknown as BackendActor;
+    await backendActor.clearAllOrders();
     setOrders([]);
-  }, []);
+  }, [actor]);
 
   return (
     <OrdersContext.Provider
